@@ -50,7 +50,7 @@ model Conversation {
 model Exchange {
   id             String   @id @default(cuid())
   userQuery      String
-  systemResponse String
+  systemResponse Json
   createdAt      DateTime @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   conversationId String

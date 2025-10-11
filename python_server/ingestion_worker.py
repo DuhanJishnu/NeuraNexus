@@ -14,7 +14,8 @@ load_dotenv()
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
 from api_client.api_client import get_files_from_api, update_status_via_api
-from models.document_ingestor import DocumentIngestor
+# from models.document_ingestor import DocumentIngestor
+from models.document_ingestor_timestamp import DocumentIngestor
 from models.vector_store import VectorDB
 
 class IngestionProcessor:

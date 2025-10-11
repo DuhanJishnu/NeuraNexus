@@ -46,3 +46,7 @@ class VectorDB:
                 })
         
         return results
+    
+    def save(self):
+        """Placeholder for saving the state if needed."""
+        pass

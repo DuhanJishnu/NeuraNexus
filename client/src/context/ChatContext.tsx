@@ -1,5 +1,6 @@
 "use client";
 
+import { Response } from "@/types/exchange";
 import React, {
   createContext,
   useContext,
@@ -12,7 +13,7 @@ import React, {
 interface Exchange {
   id: string;
   userQuery: string;
-  systemResponse: string;
+  systemResponse: Response;
   createdAt: string;
   files?: Array<string>;
   fileNames?: Array<string>;

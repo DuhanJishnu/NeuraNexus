@@ -31,3 +31,29 @@ export const getRecentConversations =async(req: Request, res:Response)=>{
     },}
     );
 }
+
+export const updateTitle = async (req: Request, res: Response) => {
+    const { convId, title } = req.body;
+    const userId = req.user?.id;
+
+    if (!convId || !title) {
+        return res.status(400).json({ error: 'convId and title are required' });
+    }
+
+    // Verify that the conversation belongs to the user
+    const conversation = await prismaClient.conversation.findUnique({
+        where: { id: convId },
+    });
+
+    if (!conversation || conversation.userId !== userId) {
+        return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Update the title
+    const updatedConversation = await prismaClient.conversation.update({
+        where: { id: convId },
+        data: { title },
+    });
+
+    res.json({ conversation: updatedConversation });
+};

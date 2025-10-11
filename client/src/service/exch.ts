@@ -1,3 +1,4 @@
+import { Response } from "@/types/exchange";
 import api  from "./api";
 
 // Get Exchanges
@@ -30,6 +31,19 @@ export const createExchange = async (
   return res.data;
 };
 
+export const updateExchange = async (
+  exchangeId: string,
+  systemResponse: Response,
+  files?: Array<string>
+) => {
+  const res = await api.put("/exch/v1/updateexch", {
+    exchangeId,
+    systemResponse,
+    files,
+  });
+  return res.data;
+};
+
 export const streamResponse = async (responseId: string, onMessage: (message: string) => void, onEnd: (retrievals: JsonWebKey) => void, onError: (error: any) => void) => {
   const eventSource = new EventSource(`${process.env.NEXT_PUBLIC_BASEURL}/api/exch/v1/stream-response/${responseId}`, {
     withCredentials: true,
@@ -42,8 +56,12 @@ export const streamResponse = async (responseId: string, onMessage: (message: st
   });
 
   eventSource.addEventListener("final", (event) => {
-    console.log("Final:", JSON.parse((event as MessageEvent).data));
-    onEnd(JSON.parse((event as MessageEvent).data));
+    if (JSON.parse((event as MessageEvent).data).retrieved_documents.length > 0) {
+      onEnd(JSON.parse((event as MessageEvent).data));
+    } else {
+      console.log(JSON.parse((event as MessageEvent).data).answer);
+      onMessage(JSON.parse((event as MessageEvent).data).answer);
+    }
     eventSource.close(); 
   });
 
