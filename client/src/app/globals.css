@@ -8,6 +8,16 @@
 --vsred: #E55934;
 }
 
+* {
+  cursor: default; /* Reset default cursor for all elements */
+  caret-color: transparent; /* Hide text caret globally */
+}
+
+input, textarea, [contenteditable="true"], .text-input {
+  cursor: text !important; /* Show text cursor only in input areas */
+  caret-color: auto !important; /* Restore caret color */
+}
+
 @utility no-scrollbar {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE/Edge */

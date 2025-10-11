@@ -4,6 +4,11 @@ import { motion } from "framer-motion";
 import Image from "next/image";
 import { Streamdown } from "streamdown";
 import { useState, useCallback } from "react";
+import {
+  ClipboardDocumentIcon,
+  CheckIcon,
+  ArrowPathIcon,
+} from "@heroicons/react/24/outline";
 
 export default function MessageBubble({
   role,
@@ -12,7 +17,8 @@ export default function MessageBubble({
   timestamp,
   isStreaming,
   files,
-  fileNames
+  fileNames,
+  onRetry, // Added onRetry to props
 }: Readonly<{
   role: "user" | "assistant";
   text: string;
@@ -21,6 +27,7 @@ export default function MessageBubble({
   isStreaming?: boolean;
   files?: Array<string>;
   fileNames?: Array<string>;
+  onRetry?: () => void; // Added onRetry to type definition
 }>) {
   const isUser = role === "user";
   const time = typeof timestamp === "string" ? new Date(timestamp) : timestamp;
@@ -28,20 +35,27 @@ export default function MessageBubble({
     hour: "2-digit",
     minute: "2-digit",
   });
+  const [isCopied, setIsCopied] = useState(false);
 
-  // Convert literal \n to actual newlines for assistant messages
-  const processedText = role === "assistant" 
-    ? text.replace(/\\n/g, '\n')
-    : text;
+  const handleCopy = () => {
+    if (navigator.clipboard && text) {
+      navigator.clipboard.writeText(text).then(() => {
+        setIsCopied(true);
+        setTimeout(() => {
+          setIsCopied(false);
+        }, 2000);
+      });
+    }
+  };
 
-  // Track failed thumbnail loads to prevent infinite requests
+  const processedText =
+    role === "assistant" ? text.replace(/\\n/g, "\n") : text;
+
   const [failedThumbs, setFailedThumbs] = useState<Set<string>>(new Set());
 
   const handleThumbnailError = useCallback((fileId: string) => {
-    setFailedThumbs(prev => new Set(prev).add(fileId));
+    setFailedThumbs((prev) => new Set(prev).add(fileId));
   }, []);
-
-  console.log("FileNames in MessageBubble: ", Array.isArray(fileNames), fileNames, fileNames? fileNames.length : 0, fileNames ? fileNames[0] : "No file names");
 
   return (
     <div
@@ -50,7 +64,7 @@ export default function MessageBubble({
       }`}
     >
       <div
-        className={`p-3 rounded-xl transition-all ${
+        className={`relative p-3 rounded-xl transition-all ${
           isUser
             ? "bg-white/10 text-white"
             : "text-gray-900 dark:text-gray-100"
@@ -76,7 +90,6 @@ export default function MessageBubble({
                 initial={{ opacity: 0 }}
                 animate={{ opacity: isStreaming ? 1 : 0.7 }}
               >
-                {/* Use processedText with actual newlines */}
                 <Streamdown>{processedText}</Streamdown>
               </motion.div>
             ) : (
@@ -87,9 +100,36 @@ export default function MessageBubble({
       </div>
 
       <div>
-        {fileNames && files && files.length > 0 && (
+        {files && files.length > 0 && (
           <>
-            <h1 className="text-2xl font-bold text-white mb-3">Citations 👇</h1>
+            <div className="flex justify-between items-center">
+              <h1 className="text-2xl font-bold text-white mb-3">
+                Citations 👇
+              </h1>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleCopy}
+                  className="p-1.5 rounded-full bg-gray-700 text-gray-400 hover:bg-gray-600 focus:outline-none"
+                  aria-label="Copy response"
+                >
+                  {isCopied ? (
+                    <CheckIcon className="w-4 h-4 text-green-500" />
+                  ) : (
+                    <ClipboardDocumentIcon className="w-4 h-4" />
+                  )}
+                </button>
+                {/* This is the new "try again" button */}
+                {!isUser && !isStreaming && onRetry && (
+                  <button
+                    onClick={onRetry}
+                    className="p-1.5 rounded-full bg-gray-700 text-gray-400 hover:bg-gray-600 focus:outline-none"
+                    aria-label="Try again"
+                  >
+                    <ArrowPathIcon className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
 
             <ul className="space-y-3">
               {files.map((file, index) => (
@@ -128,7 +168,6 @@ export default function MessageBubble({
               ))}
             </ul>
           </>
-
         )}
       </div>
 
