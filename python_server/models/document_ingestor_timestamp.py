@@ -11,7 +11,7 @@ import numpy as np
 from scipy.io import wavfile
 import pytesseract
 import noisereduce as nr
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
 from PyPDF2 import PdfReader
 import docx
 from vosk import Model, KaldiRecognizer
@@ -68,11 +68,15 @@ class DocumentIngestor:
         self.caption_model = BlipForConditionalGeneration.from_pretrained(caption_model_name).to(self.device)
 
         # Object detection
-        try:
-            from ultralytics import YOLO
-            self._object_detector = YOLO("yolov8n.pt")
-        except Exception:
-            self._object_detector = None
+        # try:
+        #     from ultralytics import YOLO
+        #     self._object_detector = YOLO("yolov8n.pt")
+
+        #     # force model to CPU to avoid GPU OOM
+        #     self._object_detector.to('cpu')
+        #     print("YOLO model loaded successfully on CPU")
+        # except Exception:
+        #     self._object_detector = None
 
         # Audio model -> Vosk
         print(f"Loading Vosk model from: {audio_model_path}")
@@ -131,77 +135,121 @@ class DocumentIngestor:
         # OCR && CAPTION && OBJECTS
         ocr_text = self._extract_ocr_text(img)
         caption = self._generate_image_caption(img)
-        tags = self._extract_image_tags(img)
+        # tags = self._extract_image_tags(img)
 
-        return self._create_image_chunks(file_metadata, image_path, img, caption, ocr_text, tags)
+        return self._create_image_chunks(file_metadata, image_path, img, caption, ocr_text, tags= None)
 
     def _generate_image_caption(self, img: Image.Image) -> str:
         """Generate caption for image using BLIP model."""
         try:
-            inputs = self.caption_processor(images=img, return_tensors="pt")
-            out = self.caption_model.generate(**inputs)
-            return self.caption_processor.decode(out[0], skip_special_tokens=True)
-        except Exception:
+            print("Generating image caption...")
+            inputs = self.caption_processor(images=img, return_tensors="pt").to(self.device)
+            out = self.caption_model.generate(**inputs, max_length=50, num_beams=5)
+            caption = self.caption_processor.decode(out[0], skip_special_tokens=True)
+            print(f"Caption: {caption}")
+            return caption
+        except Exception as e:
+            print(f"Error generating caption: {e}")
             return ""
 
-    def _extract_image_tags(self, img: Image.Image) -> List[str]:
-        """Extract object tags from image using YOLO model."""
-        if self._object_detector is None:
-            return []
+    # def _extract_image_tags(self, img: Image.Image) -> List[str]:
+    #     """Extract object tags from image using YOLO model."""
+    #     if self._object_detector is None:
+    #         print("YOLO detector not available")
+    #         return []
 
-        try:
-            results = self._object_detector(img)
-            labels = []
-            for r in results:
-                for box in r.boxes:
-                    label = r.names[int(box.cls)] if hasattr(r, 'names') else None
-                    if label:
-                        labels.append(label)
-            return list(dict.fromkeys(labels)) # dedupe
-        except Exception:
-            return []
+    #     try:
+    #         print("Detecting objects in image...")
+    #         results = self._object_detector(img)
+    #         labels = []
+    #         for r in results:
+    #             for box in r.boxes:
+    #                 label = r.names[int(box.cls)] if hasattr(r, 'names') else None
+    #                 if label:
+    #                     labels.append(label)
+    #         unique_labels = list(dict.fromkeys(labels)) # dedupe
+    #         print(f"Detected objects: {unique_labels}")
+    #         return unique_labels
+    #     except Exception as e:
+    #         print(f"Error detecting objects: {e}")
+    #         return []
 
     def _extract_ocr_text(self, img: Image.Image) -> str:
-        """Extract text from image using OCR."""
+        """Extract text from image using OCR with advanced preprocessing."""
         try:
-            return pytesseract.image_to_string(img).strip()
-        except Exception:
+            gray = img.convert('L')
+            print("Converted to grayscale")
+            
+            # Increase contrast
+            gray = ImageOps.autocontrast(gray)
+            print("Applied autocontrast")
+            
+            # Invert image (helps with white text on dark background)
+            gray = ImageOps.invert(gray)
+            print("Inverted image")
+            
+            # Apply threshold to get binary image
+            gray = gray.point(lambda x: 0 if x < 140 else 255, '1')
+            print("Applied binary threshold")
+            
+            # Denoise slightly
+            gray = gray.filter(ImageFilter.MedianFilter())
+            print("Applied median filter for denoising")
+            
+            # OCR with optimized configuration
+            custom_config = r'--oem 3 --psm 6'
+            text = pytesseract.image_to_string(gray, config=custom_config).strip()
+            
+            print(f"OCR text length: {len(text)}")
+            
+            return text
+            
+        except Exception as e:
+            print(f"Error in OCR: {e}")
             return ""
 
 
-    def _create_image_chunks(self, file_metadata: Dict, image_path: str, img: Image.Image, caption: str, ocr_text: str, tags: List[str]) -> List[Dict]:
+    def _create_image_chunks(self, file_metadata: Dict, image_path: str, img: Image.Image, caption: str, ocr_text: str, tags: List[str]= None) -> List[Dict]:
         """Create structured chunks for image data."""
         chunks = []
 
-        # caption chunk (text embed)
-        if caption:
-            chunks.append(self._create_chunk(
-                chunk_type="image_caption",
-                content=caption,
+        # Combine caption and OCR into a single chunk
+        if caption or ocr_text:
+            combined_content = ""
+            
+            if caption:
+                combined_content += f"Image Caption: {caption}"
+            
+            if caption and ocr_text:
+                combined_content += "\n\n"
+            
+            if ocr_text:
+                combined_content += f"Extracted Text: {ocr_text}"
+            
+            ocr_caption_chunk = self._create_chunk(
+                chunk_type="image_oc_caption",
+                content=combined_content,
                 file_metadata=file_metadata,
-                additional_metadata={"chunk_type": "image_caption"}
-            ))
+                additional_metadata={
+                    "chunk_type": "image_oc_caption",
+                    "has_caption": bool(caption),
+                    "has_ocr": bool(ocr_text)
+                }
+            )
+            chunks.append(ocr_caption_chunk)
 
         # tags chunk (text embed)
-        if tags:
-            chunks.append(self._create_chunk(
-                chunk_type="image_tags",
-                content=", ".join(tags),
-                file_metadata=file_metadata,
-                additional_metadata={"chunk_type": "image_tags", "tags": tags}
-        ))
-
-        # OCR chunk (text embed)
-        if ocr_text:
-            chunks.append(self._create_chunk(
-                chunk_type="image_ocr",
-                content=ocr_text,
-                file_metadata=file_metadata,
-                additional_metadata={"chunk_type": "image_ocr"}
-            ))
+        # if tags:
+        #     tags_chunk = self._create_chunk(
+        #         chunk_type="image_tags",
+        #         content=", ".join(tags),
+        #         file_metadata=file_metadata,
+        #         additional_metadata={"chunk_type": "image_tags", "tags": tags}
+        #     )
+        #     chunks.append(tags_chunk)
 
         # Image raw object chunk
-        chunks.append({
+        raw_image_chunk = {
             "type": "image",
             "content": caption or "",
             "metadata": {
@@ -210,10 +258,11 @@ class DocumentIngestor:
                 "chunk_type": "image_raw",
                 "upload_timestamp": file_metadata["upload_timestamp"],
                 "source_url": f"{API_BASE_URL}/api/file/v1/files/{file_metadata['file_id']}",
-                "tags": tags
             },
             "_image_obj": img
-        })
+        }
+
+        chunks.append(raw_image_chunk)
 
         return chunks
 
