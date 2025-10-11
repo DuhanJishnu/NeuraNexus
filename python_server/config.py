@@ -11,7 +11,7 @@ class Config:
     # Processing
     CHUNK_SIZE = 1000
     CHUNK_OVERLAP = 200
-    BATCH_SIZE = 32
+    BATCH_SIZE = 4
     POLL_INTERVAL = 10  # seconds
     MAX_WORKERS = 4
     

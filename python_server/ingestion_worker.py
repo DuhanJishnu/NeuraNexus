@@ -14,7 +14,8 @@ load_dotenv()
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
 from api_client.api_client import get_files_from_api, update_status_via_api
-from models.document_ingestor import DocumentIngestor
+# from models.document_ingestor import DocumentIngestor
+from models.document_ingestor_timestamp import DocumentIngestor
 from models.vector_store import VectorDB
 
 class IngestionProcessor:
@@ -51,18 +52,8 @@ class IngestionProcessor:
 
             # Remove file from server after ingestion
             try:
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                    # print(f"Removed: {file_path}")
-
-                root, ext = os.path.splitext(file_path)
-                if ext == ".wav":
-                    denoised_file = root + "_denoised" + ext
-
-                if os.path.exists(denoised_file):
-                    os.remove(denoised_file)
-                    # print(f"Removed: {denoised_file}")
-
+                self._cleanup_processed_files(file_path)
+                
                 logging.info("Successfully processed and removed file: %s", file_path)
 
             except Exception as e:
@@ -74,6 +65,28 @@ class IngestionProcessor:
         except Exception as e:
             logging.exception("Error while processing file %s: %s", file_path, e)
             return False
+        
+    def _cleanup_processed_files(self, file_path: str):
+        """Clean up original and temporary processed files."""
+        try:
+            files_to_remove = [file_path]
+            
+            # Check for denoised audio files
+            root, ext = os.path.splitext(file_path)
+            if ext.lower() in [".wav", ".mp3", ".flac", ".m4a"]:
+                denoised_file = root + "_denoised.wav"
+                files_to_remove.append(denoised_file)
+            
+            # Remove all files that exist
+            for file_to_remove in files_to_remove:
+                if os.path.exists(file_to_remove):
+                    os.remove(file_to_remove)
+                    logging.debug("Removed: %s", file_to_remove)
+                    
+            logging.info("Successfully cleaned up files for: %s", file_path)
+            
+        except Exception as e:
+            logging.error("Cleanup failed for %s: %s", file_path, e)
 
 def process_batch_parallel(
         file_paths: List[str],
