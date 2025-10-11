@@ -12,7 +12,8 @@ export default function MessageBubble({
   timestamp,
   isStreaming,
   files,
-  fileNames
+  fileNames,
+  fileInfos
 }: Readonly<{
   role: "user" | "assistant";
   text: string;
@@ -21,6 +22,7 @@ export default function MessageBubble({
   isStreaming?: boolean;
   files?: Array<string>;
   fileNames?: Array<string>;
+  fileInfos?: Array<Record<string, any>>;
 }>) {
   const isUser = role === "user";
   const time = typeof timestamp === "string" ? new Date(timestamp) : timestamp;
@@ -95,36 +97,55 @@ export default function MessageBubble({
             <ul className="space-y-3">
               {files.map((file, index) => (
                 <li
-                  key={file || index}
-                  className="flex items-center gap-4 p-1 rounded-lg hover:bg-blue-800/50 transition-colors duration-200"
+                  key={index}
+                  className="flex justify-between items-center gap-4 p-1 rounded-lg hover:bg-blue-800/50 transition-colors duration-200"
                 >
-                  {failedThumbs.has(file) ? (
-                    <Image
-                      src="/thumb_file.svg"
-                      alt="document thumbnail"
-                      height={40}
-                      width={40}
-                      className="rounded-md shadow-sm opacity-70"
-                    />
-                  ) : (
-                    <Image
-                      src={`${process.env.NEXT_PUBLIC_FILE_BASE_URL}/api/file/v1/thumb/${file}`}
-                      alt="document thumbnail"
-                      height={40}
-                      width={40}
-                      className="rounded-md shadow-sm"
-                      onError={() => handleThumbnailError(file)}
-                    />
-                  )}
+                  <div className="flex items-center gap-4">
+                      {failedThumbs.has(file) ? (
+                      <Image
+                        src="/thumb_file.svg"
+                        alt="document thumbnail"
+                        height={40}
+                        width={40}
+                        className="rounded-md shadow-sm opacity-70"
+                      />
+                    ) : (
+                      <Image
+                        src={`${process.env.NEXT_PUBLIC_FILE_BASE_URL}/api/file/v1/thumb/${file}`}
+                        alt="document thumbnail"
+                        height={40}
+                        width={40}
+                        className="rounded-md shadow-sm"
+                        onError={() => handleThumbnailError(file)}
+                      />
+                    )}
 
-                  <a
-                    href={`${process.env.NEXT_PUBLIC_FILE_BASE_URL}/api/file/v1/files/${file}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-200 hover:text-white font-medium transition-colors duration-150"
-                  >
-                    {fileNames ? fileNames[index] : file}
-                  </a>
+                    <a
+                      href={`${process.env.NEXT_PUBLIC_FILE_BASE_URL}/api/file/v1/files/${file}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-200 hover:text-white font-medium transition-colors duration-150"
+                    >
+                      {fileNames ? fileNames[index] : file}
+                    </a>
+                  </div>
+                  {fileInfos && Object.keys(fileInfos[index] || {}).length > 0 && (
+                    <div className="text-sm text-gray-400">
+                      {/* Audio files info */}
+                      {fileInfos[index].startTime ? (
+                        <span className="text-white">
+                          <i>Duration</i> ~ {fileInfos[index].duration}s [{fileInfos[index].startTime} - {fileInfos[index].endTime}]
+                        </span>
+                      ) : null}
+                      {/* Pdf or Text Files info */}
+                      {fileInfos[index].pageNumbers ? (
+                        <span className="text-white">
+                          <i>Page</i> ~ {fileInfos[index].pageNumbers.join(", ")}
+                        </span>
+                      ) : null
+                      }
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

@@ -176,12 +176,45 @@ export default function ChatWindow() {
           );
         },
         async (retrievals: any) => {
-          const retrievedFiles: Array<string> = []
-          console.log("Stream ended. Retrievals:", retrievals.retrieved_documents);
+          const retrievedFilesSet: Set<string> = new Set();
+          const fileInfos: Array<Record<string, any>> = [];
+
+          // Map to track unique pages per file
+          const files_to_pages = new Map<string, Set<number>>();
+
           for (const document of retrievals.retrieved_documents) {
-            console.log(document.metadata.file_id.replace(".pdf", ""));
-            retrievedFiles.push(document.metadata.file_id.replace(".pdf", ""));
+            const fileId = document.metadata.file_id.replace(".pdf", "");
+            retrievedFilesSet.add(fileId);
+
+            const chunkType = document.metadata.chunk_type;
+
+            if (chunkType === "audio_transcript") {
+              fileInfos.push({
+                startTime: document.metadata.start_time,
+                endTime: document.metadata.end_time,
+                duration: document.metadata.duration,
+              });
+
+            } else if (chunkType === "text") {
+              // If no set exists for this file yet, create one
+              if (!files_to_pages.has(fileId)) {
+                files_to_pages.set(fileId, new Set());
+              }
+
+              // Add unique page number
+              files_to_pages.get(fileId)!.add(document.metadata.page_number);
+            }
           }
+
+          // Convert the Map into fileInfos objects for only text chunks
+          for (const [fileId, pagesSet] of files_to_pages.entries()) {
+            fileInfos.push({
+              fileId,
+              pageNumbers: Array.from(pagesSet).sort((a, b) => a - b),
+            });
+          }
+
+          const retrievedFiles = Array.from(retrievedFilesSet);
 
           if (!titleIsSet && convId) {
             
@@ -241,13 +274,16 @@ export default function ChatWindow() {
                       ...exchange.systemResponse,
                       citation: {
                         files: retrievedFiles,
-                        fileNames: fileNames
+                        fileNames: fileNames,
+                        fileInfos: fileInfos
                       }
                     }
                   }
                 : exchange
             )
           );
+
+          console.log("FileInfos:", fileInfos);
 
           // Update the exchange in the database using the locally tracked answer
           await updateExchange(
@@ -256,7 +292,8 @@ export default function ChatWindow() {
               answer: answer,
               citation: {
                 files: retrievedFiles,
-                fileNames: fileNames
+                fileNames: fileNames,
+                fileInfos: fileInfos
               }
             }
           );
@@ -370,6 +407,7 @@ export default function ChatWindow() {
                     timestamp={m.createdAt}
                     files={m.systemResponse.citation?.files ?? []}
                     fileNames={m.systemResponse.citation?.fileNames ?? []}
+                    fileInfos={m.systemResponse.citation?.fileInfos ?? []}
                   />
                 </motion.div>
               ))
