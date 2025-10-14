@@ -102,7 +102,7 @@ export default function MessageBubble({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
           >
-            {isStreaming && !text ? <TypingIndicator /> : <Streamdown>{processedText}</Streamdown>}
+            {!processedText ? <TypingIndicator /> : <Streamdown>{processedText}</Streamdown>}
           </motion.div>
         ) : (
           <p>{text}</p>
