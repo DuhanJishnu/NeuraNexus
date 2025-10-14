@@ -1,6 +1,6 @@
 "use client";
 
-import { Response } from "@/types/exchange";
+import { Exchange, Response } from "@/types/exchange";
 import React, {
   createContext,
   useContext,
@@ -8,16 +8,6 @@ import React, {
   ReactNode,
   useMemo,
 } from "react";
-
-
-interface Exchange {
-  id: string;
-  userQuery: string;
-  systemResponse: Response;
-  createdAt: string;
-  files?: Array<string>;
-  fileNames?: Array<string>;
-}
 
 interface ChatContextType {
   exchanges: Exchange[];

@@ -225,12 +225,24 @@ export const getFileNamesByIdsFromDB = async (encryptedIds: string[]) => {
   try {
     const documents = await prisma.document.findMany({
       where: { documentEncryptedId: { in: encryptedIds } },
-      select: { displayName: true },
+      select: { documentEncryptedId: true, displayName: true },
     });
-    console.log('Documents fetched:', documents);
-    return documents.map(doc => doc.displayName);
+
+    // Make a map for fast O(1) lookups
+    const docMap = new Map(
+      documents.map(doc => [doc.documentEncryptedId, doc.displayName])
+    );
+
+    // Preserve order of input IDs
+    const orderedFileNames = encryptedIds
+      .map(id => docMap.get(id))
+      .filter(Boolean);
+
+    console.log('Ordered file names:', orderedFileNames);
+    return orderedFileNames;
   } catch (error) {
     console.error('Error fetching file names by IDs:', (error as Error).message);
     throw error;
   }
 };
+

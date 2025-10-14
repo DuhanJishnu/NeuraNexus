@@ -5,6 +5,7 @@ export const SystemResponseSchema = z.object({
   citation: z.object({
     files: z.array(z.string()),
     fileNames: z.array(z.string()),
+    fileInfos: z.array(z.record(z.string(), z.any())).optional(),
   }),
 });
 
