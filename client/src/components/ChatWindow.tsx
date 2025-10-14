@@ -7,6 +7,7 @@ import { ChevronDownIcon } from "@heroicons/react/24/outline";
 import { createExchange, getExchanges, streamResponse, updateExchange } from "@/service/exch";
 import { useChat } from "@/context/ChatContext";
 import { updateConvTitle } from "@/service/conv";
+import Spinner from "./spinner"; // Assuming you have a spinner component
 
 export default function ChatWindow() {
   const {
@@ -17,13 +18,14 @@ export default function ChatWindow() {
     convTitle,
     setConvTitle,
     refreshConversations,
-    addNewConversation
+    addNewConversation,
+    isLoading,
+    setIsLoading,
   } = useChat();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [exchangePage, setExchangePage] = useState(1);
   const [hasMoreExchanges, setHasMoreExchanges] = useState(true);
-  const [isLoading, setIsLoading] = useState(false);
   const loader = useRef(null);
   const activeStreams = useRef<Array<() => void>>([]);
   const [titleIsSet, setTitleIsSet] = useState(false);
@@ -40,7 +42,6 @@ export default function ChatWindow() {
   }, [exchanges, atBottom, scrollToBottom]);
 
   useEffect(() => {
-    console.log("Title: ", convTitle);
     if (!convTitle || convTitle === "" || convTitle === "A new Title") {
       setTitleIsSet(false);
     }
@@ -73,17 +74,14 @@ export default function ChatWindow() {
     return () => observer.disconnect();
   }, [handleObserver]);
 
-  // Reset page when conversation changes
   useEffect(() => {
     setExchangePage(1);
     setHasMoreExchanges(true);
     
-    // Clean up any active streams when conversation changes
     activeStreams.current.forEach(closeStream => closeStream());
     activeStreams.current = [];
   }, [convId]);
 
-  // Cleanup streams on unmount
   useEffect(() => {
     return () => {
       activeStreams.current.forEach(closeStream => closeStream());
@@ -93,6 +91,7 @@ export default function ChatWindow() {
 
   useEffect(() => {
     if (convId) {
+      setIsLoading(true);
       getExchanges(convId, exchangePage).then((res) => {
         const processedExchanges = res.exchanges.map((exchange: any) => ({
           ...exchange,
@@ -103,28 +102,21 @@ export default function ChatWindow() {
         }));
         
         if (exchangePage === 1) {
-          // First page: reverse to show oldest first, newest last
           setExchanges([...processedExchanges].reverse());
         } else {
-          // Additional pages: prepend older messages (already in desc order from backend)
           setExchanges((prev) => [[...processedExchanges].reverse(), ...prev].flat());
         }
         setHasMoreExchanges(res.exchanges.length > 0);
+      }).finally(() => {
+        setIsLoading(false);
       });
     }
-
-    console.log("Exchanges", exchanges);
-  }, [convId, exchangePage, setExchanges]);
-
-  useEffect(()=>{
-    setExchanges((prev)=>{
-      return prev.map((m)=> ({...m, systemResponse: m.systemResponse}))  
-    })
-  },[])
+  }, [convId, exchangePage, setExchanges, setIsLoading]);
 
   const onSend = async (text: string, image?: File) => {
     if (!text.trim() && !image) return;
     
+    setIsLoading(true);
     const tempId = Date.now().toString();
     const tempExchange = {
       id: tempId,
@@ -148,7 +140,6 @@ export default function ChatWindow() {
       if (!convId && res.conversation) {
         setConvId(res.conversation.id);
         setConvTitle(res.conversation.title);
-        // Add the new conversation to the sidebar list
         addNewConversation({
           id: res.conversation.id,
           title: res.conversation.title
@@ -156,14 +147,12 @@ export default function ChatWindow() {
       }
 
       let answer = ""; 
-      // Start streaming the response
       const closeStream = await streamResponse(
         res.responseId,
         async (message: string) => {
 
           answer += message;
 
-          // Update the temporary exchange with streamed content 
           setExchanges((prev) =>
             prev.map((m) =>
               m.id === tempId ? { 
@@ -179,7 +168,6 @@ export default function ChatWindow() {
           const retrievedFilesSet: Set<string> = new Set();
           const fileInfos: Array<Record<string, any>> = [];
 
-          // Map to track unique pages per file
           const files_to_pages = new Map<string, Set<number>>();
 
           for (const document of retrievals.retrieved_documents) {
@@ -196,17 +184,13 @@ export default function ChatWindow() {
               });
 
             } else if (chunkType === "text") {
-              // If no set exists for this file yet, create one
               if (!files_to_pages.has(fileId)) {
                 files_to_pages.set(fileId, new Set());
               }
-
-              // Add unique page number
               files_to_pages.get(fileId)!.add(document.metadata.page_number);
             }
           }
 
-          // Convert the Map into fileInfos objects for only text chunks
           for (const [fileId, pagesSet] of files_to_pages.entries()) {
             fileInfos.push({
               fileId,
@@ -222,21 +206,17 @@ export default function ChatWindow() {
               .split(/\\n|\n/)[0]
               .trim();
             
-            // Clean up markdown formatting and limit length
             newTitle = newTitle
-              .replace(/^#+\s*/, '') // Remove markdown headers (# ## ###)
-              .replace(/\*\*(.+?)\*\*/g, '$1') // Remove bold formatting
-              .replace(/\*(.+?)\*/g, '$1') // Remove italic formatting
+              .replace(/^#+\s*/, '')
+              .replace(/\*\*(.+?)\*\*/g, '$1')
+              .replace(/\*(.+?)\*/g, '$1')
               .trim();
             
             if (newTitle && newTitle.length > 0) {
               setTitleIsSet(true);
               setConvTitle(newTitle);
               
-              // Update the conversation title in the database
               updateConvTitle(convId, newTitle).then(() => {
-                console.log("Title updated successfully");
-                // Refresh conversations to update the sidebar
                 refreshConversations();
               }).catch((error) => {
                 console.error("Failed to update title:", error);
@@ -246,7 +226,6 @@ export default function ChatWindow() {
 
           let fileNames: string[] = [];
           
-          // Fetch file names synchronously if we have retrieved files
           if (retrievedFiles.length > 0) {
             try {
               const response = await fetch(`${process.env.NEXT_PUBLIC_FILE_BASE_URL}/api/file/v1/getFileNamesbyId`, {
@@ -264,7 +243,6 @@ export default function ChatWindow() {
             }
           }
 
-          // Update the exchange in the UI with files and file names
           setExchanges((prev) =>
             prev.map((exchange) =>
               exchange.id === tempId 
@@ -282,10 +260,7 @@ export default function ChatWindow() {
                 : exchange
             )
           );
-
-          console.log("FileInfos:", fileInfos);
-
-          // Update the exchange in the database using the locally tracked answer
+          
           await updateExchange(
             res.exchange.id,
             {
@@ -297,10 +272,8 @@ export default function ChatWindow() {
               }
             }
           );
-          console.log("Update exchange response:", res.data);
         },
         (error: any) => {
-          console.log("Error in stream response function");
           console.error("Streaming error:", error);
           setExchanges((prev) =>
             prev.map((m) =>
@@ -315,7 +288,6 @@ export default function ChatWindow() {
         }
       );
 
-      // Store the close function for cleanup
       activeStreams.current.push(closeStream);
     } catch (err) {
       console.error("Send failed", err);
@@ -329,12 +301,13 @@ export default function ChatWindow() {
           } : m
         )
       );
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
     <div className="relative flex flex-col w-full h-full bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 dark:border-gray-800 overflow-hidden">
-      {/* Header */}
       <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 bg-gradient-to-r from-white to-gray-50 dark:from-gray-900 dark:to-gray-800">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -351,7 +324,6 @@ export default function ChatWindow() {
         </div>
       </div>
 
-      {/* Messages Container */}
       <div
         ref={containerRef}
         onScroll={handleScroll}
@@ -360,15 +332,12 @@ export default function ChatWindow() {
         <div className="max-w-4xl mx-auto px-4 py-6">
           {hasMoreExchanges && (
             <div ref={loader} className="flex justify-center py-4">
-              <div className="flex items-center space-x-2 text-gray-500 dark:text-gray-400">
-                <div className="w-4 h-4 border-2 border-gray-300 dark:border-gray-600 border-t-vsyellow rounded-full animate-spin"></div>
-                <span className="text-sm">Loading earlier messages...</span>
-              </div>
+              {isLoading && <Spinner />}
             </div>
           )}
           
           <AnimatePresence initial={false} mode="popLayout">
-            {exchanges.length === 0 ? (
+            {exchanges.length === 0 && !isLoading ? (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -398,7 +367,6 @@ export default function ChatWindow() {
                     role="user"
                     text={m.userQuery}
                     timestamp={m.createdAt}
-                    // image={m}
                   />
                   <MessageBubble
                     role="assistant"
@@ -416,7 +384,6 @@ export default function ChatWindow() {
         </div>
       </div>
 
-      {/* Scroll to Bottom Button */}
       {!atBottom && (
         <motion.button
           initial={{ opacity: 0, scale: 0.8 }}
@@ -430,7 +397,6 @@ export default function ChatWindow() {
           <ChevronDownIcon className="w-5 h-5" />
         </motion.button>
       )}
-      {/* Input Area */}
       <div className="border-t border-gray-100 dark:border-gray-800 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto px-4 py-4">
           <ChatInput onSend={onSend} conv_id={convId} setConvId={setConvId} />
