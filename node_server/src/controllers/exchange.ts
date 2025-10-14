@@ -62,40 +62,76 @@ export const createExchange = async (req: Request, res: Response) => {
       }),
     });
     } catch (error) {
-      console.log("PYTHON ERROR: ", error)
+      console.error("PYTHON ERROR: ", error);
+      // Send error event to client
+      await redis.xadd(
+        `responseId:${responseId}`,
+        "*",
+        "conversation", conversationId,
+        "responseId", responseId,
+        "type", "error",
+        "data", JSON.stringify({ error: "Failed to connect to Python server", success: false })
+      );
+      return;
     }
     console.log("PYTHON SERVER: Response received from Python server", pyRes);
     if (!pyRes?.body || !pyRes) {
       console.error("PYTHON SERVER ERROR: No response body from Python server");
+      // Send error event to client
+      await redis.xadd(
+        `responseId:${responseId}`,
+        "*",
+        "conversation", conversationId,
+        "responseId", responseId,
+        "type", "error",
+        "data", JSON.stringify({ error: "No response from Python server", success: false })
+      );
       return;
     };
     const reader = pyRes.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
 
-      const parts = buffer.split("\n\n");
-      buffer = parts.pop()!;
-      for (const part of parts) {
-        if (!part.trim()) continue;
-        const match = part.match(/^data:\s*(.+)$/m);
-        if (match) {
-          const event = JSON.parse(match[1]);
-          console.log("Event from Python:", event);
-          await redis.xadd(
-            `responseId:${responseId}`,
-            "*",
-            "conversation", conversationId,
-            "responseId", responseId,
-            "type", event.type,
-            "data", JSON.stringify(event.data)
-          );
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop()!;
+        for (const part of parts) {
+          if (!part.trim()) continue;
+          try {
+            const match = part.match(/^data:\s*(.+)$/m);
+            if (match) {
+              const event = JSON.parse(match[1]);
+              console.log("Event from Python:", event);
+              await redis.xadd(
+                `responseId:${responseId}`,
+                "*",
+                "conversation", conversationId,
+                "responseId", responseId,
+                "type", event.type,
+                "data", JSON.stringify(event.data)
+              );
+            }
+          } catch (parseError) {
+            console.error("Error parsing event:", parseError, "Raw part:", part);
+          }
         }
       }
+    } catch (streamError) {
+      console.error("Error reading stream:", streamError);
+      // Send error event to client
+      await redis.xadd(
+        `responseId:${responseId}`,
+        "*",
+        "conversation", conversationId,
+        "responseId", responseId,
+        "type", "error",
+        "data", JSON.stringify({ error: "Stream processing failed", success: false })
+      );
     }
   })();
 

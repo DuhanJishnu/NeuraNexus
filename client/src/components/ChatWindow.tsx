@@ -147,6 +147,8 @@ export default function ChatWindow() {
       }
 
       let answer = ""; 
+      let retryAttempt = 0;
+      
       const closeStream = await streamResponse(
         res.responseId,
         async (message: string) => {
@@ -274,18 +276,26 @@ export default function ChatWindow() {
           );
         },
         (error: any) => {
-          console.error("Streaming error:", error);
+          retryAttempt++;
+          console.error(`Streaming error (attempt ${retryAttempt}):`, error);
+          
+          // Show retry message to user
+          const retryMessage = retryAttempt < 3 
+            ? `\n\n⚠️ Connection issue, retrying... (${retryAttempt}/3)`
+            : "\n\n❌ Failed to receive response after 3 attempts. Please try again.";
+            
           setExchanges((prev) =>
             prev.map((m) =>
               m.id === tempId 
                 ? { ...m, systemResponse: {
                    ...m.systemResponse, 
-                   answer: m.systemResponse.answer + "\n\nError: Failed to receive response"
+                   answer: m.systemResponse.answer + retryMessage
                   }
                 } : m
             )
           );
-        }
+        },
+        3 // Set retry count to 3
       );
 
       activeStreams.current.push(closeStream);
