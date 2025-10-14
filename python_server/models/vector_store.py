@@ -7,25 +7,29 @@ class VectorDB:
         self.index = Index.from_env()
 
     def add_documents(self, chunks: List[Dict[str, Any]]):
-        """Add documents to the Upstash Vector DB."""
+        """Add documents to the Upstash Vector DB in safe batches."""
         vectors_to_upsert = []
         for chunk in chunks:
-            # The ID for the vector
+            # Generate a unique ID for each vector
             vector_id = chunk["metadata"]["chunk_id"]
             
-            # The vector embedding
-            embedding = chunk["embedding_image"] if "embedding_image" in chunk else chunk["embedding_text"]
+            # Choose embedding type (image or text)
+            embedding = chunk.get("embedding_image", chunk.get("embedding_text"))
             
-            # The metadata to store with the vector
+            # Attach metadata
             metadata = {
                 "content": chunk["content"],
                 **chunk["metadata"]
             }
             
             vectors_to_upsert.append((vector_id, embedding, metadata))
-        
-        if vectors_to_upsert:
-            self.index.upsert(vectors=vectors_to_upsert)
+
+        # ✅ Handle Upstash batch size limit
+        BATCH_LIMIT = 1000
+        for i in range(0, len(vectors_to_upsert), BATCH_LIMIT):
+            batch = vectors_to_upsert[i:i + BATCH_LIMIT]
+            self.index.upsert(vectors=batch)
+            print(f"✅ Uploaded batch {i//BATCH_LIMIT + 1} with {len(batch)} vectors")
 
     def similarity_search(self, query_embedding: List[float], k: int = 5, threshold: float = 0.7) -> List[Dict]:
         """Search for similar documents in the Upstash Vector DB."""
@@ -46,7 +50,7 @@ class VectorDB:
                 })
         
         return results
-    
+
     def save(self):
         """Placeholder for saving the state if needed."""
         pass
