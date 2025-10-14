@@ -1,13 +1,71 @@
-# RAGnarok Node.js Server
+# 🚀 Node.js API Server
 
-This document provides detailed information about the Node.js server for the RAGnarok application. It includes an overview of the server, setup instructions, and a comprehensive API reference.
+> **Enterprise-grade backend API server providing authentication, file management, and conversation handling for the NeuraNexus RAG platform.**
 
-## Table of Contents
+## 📋 Overview
 
-- [Project Overview](#project-overview)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
+The Node.js server acts as the main API gateway for the NeuraNexus platform, handling user authentication, file upload processing, conversation management, and database operations. Built with Express.js and TypeScript, it provides a robust and scalable backend infrastructure.
+
+## ✨ Features
+
+### 🔐 **Authentication System**
+- **JWT-based Authentication**: Secure access and refresh token implementation
+- **Role-based Access Control**: User and Admin role management
+- **Secure Cookie Storage**: HTTP-only cookies for token storage
+- **Password Hashing**: bcrypt-based password security
+- **Token Refresh**: Automatic token rotation for enhanced security
+
+### 📁 **File Management**
+- **Multi-format Support**: Images, Audio, PDFs, and Microsoft Office documents
+- **Secure Upload**: Magic number validation and file type verification
+- **Background Processing**: Queue-based file processing with BullMQ
+- **File Compression**: Automatic optimization for different media types
+- **Thumbnail Generation**: Smart preview creation for various file formats
+- **Encrypted Storage**: Secure file storage with encrypted identifiers
+
+### 💬 **Conversation Management & AI Integration**
+- **Chat History**: Persistent conversation storage and retrieval
+- **Exchange System**: Message exchange tracking with metadata
+- **Python RAG Integration**: Seamless integration with hybrid search RAG pipeline
+- **AI Model Support**: Interfaces with Gemma3:4b LLM and nomic-embed-text embeddings
+- **Pagination**: Efficient conversation and message pagination
+- **Real-time Updates**: Support for real-time chat functionality with streaming responses
+
+### 🗄️ **Database Operations**
+- **Prisma ORM**: Type-safe database operations
+- **PostgreSQL**: Robust relational database with full ACID compliance
+- **Migration Support**: Database schema versioning and updates
+- **Connection Pooling**: Optimized database connection management
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────┐
+│              Express.js App             │
+├─────────────────────────────────────────┤
+│  Authentication │  File Mgmt │  Chat    │
+│     Routes      │   Routes   │  Routes  │
+├─────────────────────────────────────────┤
+│  Auth Service   │ File Service│ Conv Svc│
+├─────────────────────────────────────────┤
+│         Prisma ORM (Database)           │
+├─────────────────────────────────────────┤
+│    Redis Queue  │  Background Workers   │
+└─────────────────────────────────────────┘
+```
+
+## 🛠️ Tech Stack
+
+- **Runtime**: Node.js 18+
+- **Framework**: Express.js 5
+- **Language**: TypeScript 5
+- **Database**: PostgreSQL with Prisma ORM
+- **Queue**: Redis + BullMQ
+- **Authentication**: JWT + bcrypt
+- **File Processing**: Sharp, FFmpeg, Multer
+- **Validation**: Zod schemas
+
+## 🚀 Getting Started
   - [Running the Server](#running-the-server)
 - [API Reference](#api-reference)
   - [Authentication Routes](#authentication-routes)
@@ -17,7 +75,7 @@ This document provides detailed information about the Node.js server for the RAG
 
 ## Project Overview
 
-The Node.js server is a core component of the RAGnarok application, responsible for handling user authentication, managing conversations and exchanges, and processing file uploads. It is built with Express.js and uses a PostgreSQL database via Prisma for data persistence.
+The Node.js server is a core component of the NeuraNexus application, responsible for handling user authentication, managing conversations and exchanges, and processing file uploads. It is built with Express.js and uses a PostgreSQL database via Prisma for data persistence.
 
 ## Getting Started
 
@@ -43,105 +101,320 @@ The Node.js server is a core component of the RAGnarok application, responsible 
     npx prisma migrate dev
     ```
 
-### Running the Server
-
-To start the server in development mode, run:
-
+### Prerequisites
 ```bash
+# Required
+Node.js 18+
+PostgreSQL 14+
+Redis 6+
+
+# Optional (for media processing)
+FFmpeg
+```
+
+### Installation
+```bash
+# Clone and navigate
+git clone <repository-url>
+cd NeuraNexus/node_server
+
+# Install dependencies
+npm install
+
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your configuration
+
+# Set up database
+npx prisma migrate dev
+npx prisma generate
+
+# Start development server
 npm run dev
 ```
 
-The server will be available at `http://localhost:3001`.
+### Environment Variables
+```env
+# Database
+DATABASE_URL="postgresql://user:password@localhost:5432/NeuraNexus"
 
-## API Reference
+# JWT Secrets
+JWT_ACCESS_SECRET="your-access-secret"
+JWT_REFRESH_SECRET="your-refresh-secret"
 
-All API endpoints are prefixed with `/api`.
+# Redis
+REDIS_URL="redis://localhost:6379"
 
-### Authentication Routes
+# Server
+PORT=8000
+NODE_ENV="development"
+DOMAIN_NAME="http://localhost:8000"
 
-Base path: `/api/auth/v1`
+# File Processing Limits
+IMAGE_MAX_SIZE=10
+AUDIO_MAX_SIZE=50
+DOCUMENT_MAX_SIZE=25
+DEFAULT_IMAGE_WIDTH=800
+DEFAULT_IMAGE_HEIGHT=600
+DEFAULT_IMAGE_QUALITY=80
+```
 
-#### `POST /signup`
+## 📚 API Endpoints
 
-Registers a new user.
+### Authentication (`/api/auth/v1`)
+```bash
+POST /signup      # User registration
+POST /login       # User authentication
+GET  /refresh     # Token refresh
+GET  /me          # Get current user
+```
 
-**Request Body:**
+### File Management (`/api/file/v1`)
+```bash
+POST /upload           # Upload files
+GET  /job/:id          # Check processing status
+GET  /files/:id        # Serve file
+GET  /thumb/:id        # Serve thumbnail
+GET  /documents        # List documents (paginated)
+DELETE /documents/:id  # Delete document
+```
 
-```json
-{
-  "username": "testuser",
-  "email": "test@example.com",
-  "password": "password123"
+### Conversations (`/api/conv/v1`)
+```bash
+GET /getrecentconv     # Get recent conversations
+```
+
+### Exchanges (`/api/exch/v1`)
+```bash
+GET  /getexch         # Get conversation exchanges
+POST /createexch      # Create new exchange
+```
+
+## 🔧 Core Services
+
+### AuthService
+```typescript
+// Generate tokens
+generateAccessToken(userId: string): string
+generateHashRefreshToken(userId: string): Promise<string>
+
+// User management
+getSafeUser(user: User): SafeUser
+```
+
+### FileService
+```typescript
+// File processing
+processUploadedFiles(files: File[], payload: any, query: any): Promise<Result[]>
+processSecureUploadedFiles(files: ValidatedFile[], payload: any, query: any): Promise<Result[]>
+
+// File operations
+serveFile(encryptedId: string): Promise<FileData>
+serveThumbnail(encryptedId: string): Promise<FileData>
+getJobStatus(jobId: string): Promise<JobStatus>
+```
+
+## 🔄 Background Processing
+
+### Queue Workers
+- **Image Processing**: Compression, resizing, format conversion
+- **Audio Processing**: Compression, format conversion  
+- **PDF Processing**: Text extraction, thumbnail generation
+- **Document Processing**: Text extraction from DOCX, PPTX files
+- **Video Processing**: Compression, thumbnail generation
+
+### Queue Configuration
+```typescript
+const queueConfig = {
+  connection: {
+    host: 'localhost',
+    port: 6379,
+  },
+  defaultJobOptions: {
+    removeOnComplete: 10,
+    removeOnFail: 5,
+    attempts: 3,
+    backoff: {
+      type: 'exponential',
+      delay: 2000,
+    },
+  },
+};
+```
+
+## 🗃️ Database Schema
+
+### Core Models
+```prisma
+model User {
+  id            String         @id @default(cuid())
+  username      String         @unique
+  email         String         @unique
+  password      String
+  role          Role           @default(USER)
+  conversations Conversation[]
+  tokens        RefreshToken[]
+}
+
+model Conversation {
+  id        String     @id @default(cuid())
+  title     String?
+  user      User       @relation(fields: [userId], references: [id])
+  userId    String
+  exchanges Exchange[]
+}
+
+model Exchange {
+  id             String       @id @default(cuid())
+  userQuery      String
+  systemResponse Json
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+}
+
+model Document {
+  id                  Int            @id @default(autoincrement())
+  documentType        Int
+  displayName         String
+  documentEncryptedId String         @unique
+  status              DocumentStatus @default(PENDING)
+  // ... additional fields
 }
 ```
 
-**Request Body Schema:**
+## 🛡️ Security Features
 
-- `username` (string, required): Must be between 3 and 20 characters.
-- `email` (string, required): Must be a valid email address.
-- `password` (string, required): Must be at least 6 characters long.
+### Input Validation
+```typescript
+// Zod schemas for request validation
+const SignupSchema = z.object({
+  username: z.string().min(3).max(20),
+  email: z.string().email(),
+  password: z.string().min(6),
+});
 
-**Response:**
-
-- **200 OK:**
-  ```json
-  {
-    "id": 1,
-    "email": "test@example.com",
-    "username": "testuser"
-  }
-  ```
-- **400 Bad Request:** If the user already exists or the request body is invalid.
-
-#### `POST /login`
-
-Logs in an existing user.
-
-**Request Body:**
-
-```json
-{
-  "email": "test@example.com",
-  "password": "password123"
-}
+const FileUploadSchema = z.object({
+  files: z.array(z.any()).min(1),
+  // ... additional validation
+});
 ```
 
-**Request Body Schema:**
+### File Security
+- **Magic Number Detection**: Verify file types by content, not extension
+- **File Size Limits**: Configurable size limits per file type
+- **Secure Storage**: Encrypted file identifiers
+- **Access Control**: Authentication required for file access
 
-- `email` (string, required): Must be a valid email address.
-- `password` (string, required): Must be at least 6 characters long.
+### Authentication Security
+- **HTTP-only Cookies**: Prevent XSS attacks
+- **Secure Headers**: CORS, CSP, and other security headers
+- **Rate Limiting**: Prevent brute force attacks
+- **Input Sanitization**: Comprehensive request sanitization
 
-**Response:**
+## 📊 Monitoring & Logging
 
-- **200 OK:**
-  ```json
-  {
-    "id": 1,
-    "email": "test@example.com",
-    "username": "testuser"
-  }
-  ```
-- **404 Not Found:** If the user is not found.
-- **400 Bad Request:** If the credentials are incorrect.
-
-#### `GET /refresh`
-
-Refreshes the access token using a refresh token provided in the request body.
-
-**Request Body:**
-
-```json
-{
-  "refresh_token": "your_refresh_token"
-}
+### Request Logging
+```typescript
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  console.log('Body:', req.body);
+  console.log('Headers:', req.headers);
+  next();
+});
 ```
 
-**Response:**
+### Error Handling
+```typescript
+// Global error middleware
+app.use(errorMiddleware);
 
-- **200 OK:**
-  ```json
-  {
-    "message": "Updated token"
+// Custom exception classes
+class BadRequestException extends Error
+class NotFoundException extends Error
+class UnprocessableEntity extends Error
+```
+
+## 🧪 Testing
+
+### Unit Tests
+```bash
+npm test                # Run all tests
+npm run test:watch      # Watch mode
+npm run test:coverage   # Coverage report
+```
+
+### API Testing
+```bash
+# Test authentication
+curl -X POST http://localhost:8000/api/auth/v1/signup \
+  -H "Content-Type: application/json" \
+  -d '{"username":"test","email":"test@example.com","password":"password123"}'
+
+# Test file upload
+curl -X POST http://localhost:8000/api/file/v1/upload \
+  -H "Authorization: Bearer <token>" \
+  -F "files=@test.pdf"
+```
+
+## 🚀 Deployment
+
+### Docker Support
+```dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY . .
+RUN npx prisma generate
+RUN npm run build
+
+CMD ["npm", "start"]
+```
+
+### Environment Setup
+```bash
+# Production environment
+NODE_ENV=production
+DATABASE_URL="postgresql://..."
+REDIS_URL="redis://..."
+
+# Security
+JWT_ACCESS_SECRET="strong-secret"
+JWT_REFRESH_SECRET="another-strong-secret"
+```
+
+## 📈 Performance Optimization
+
+- **Connection Pooling**: Database connection optimization
+- **Query Optimization**: Efficient database queries with proper indexing
+- **Caching**: Redis-based caching for frequently accessed data
+- **Background Processing**: Non-blocking file processing
+- **Compression**: Response compression with gzip
+
+## 🤝 Contributing
+
+1. Follow TypeScript best practices
+2. Use Prisma for database operations
+3. Implement proper error handling
+4. Add comprehensive logging
+5. Write unit tests for new features
+6. Update API documentation
+
+## 📝 Scripts
+
+```bash
+npm run dev          # Development server with nodemon
+npm run build        # Compile TypeScript
+npm run start        # Production server
+npm run test         # Run tests
+npm run lint         # Run ESLint
+npm run migrate      # Run Prisma migrations
+```
+
+---
+
+**Built with ❤️ by Team NeuraNexus**
   }
   ```
 - **401 Unauthorized:** If the refresh token is missing.
