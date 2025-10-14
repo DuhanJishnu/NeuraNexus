@@ -19,17 +19,17 @@ app.use(cors({
 }));
 app.use(cookieParser());
 
-app.use((req, res, next) => {
-  console.log("----- Incoming Request -----");
-  console.log(`Method: ${req.method}; Path: ${req.path}`);
-  console.log("Body:", req.body);
-  console.log("Headers:", req.headers);
-  console.log("Cookies:", req.cookies);
-  console.log("Params:", req.params);
-  console.log("Query:", req.query);
-  console.log("----------------------------");
-  next();
-});
+// app.use((req, res, next) => {
+//   console.log("----- Incoming Request -----");
+//   console.log(`Method: ${req.method}; Path: ${req.path}`);
+//   console.log("Body:", req.body);
+//   console.log("Headers:", req.headers);
+//   console.log("Cookies:", req.cookies);
+//   console.log("Params:", req.params);
+//   console.log("Query:", req.query);
+//   console.log("----------------------------");
+//   next();
+// });
 
 app.get("/", (req: Request, res: Response) => {
   res.send("This is user server!");
