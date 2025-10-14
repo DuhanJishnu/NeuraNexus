@@ -7,7 +7,7 @@ import { ChevronDownIcon } from "@heroicons/react/24/outline";
 import { createExchange, getExchanges, streamResponse, updateExchange } from "@/service/exch";
 import { useChat } from "@/context/ChatContext";
 import { updateConvTitle } from "@/service/conv";
-import Spinner from "./spinner"; // Assuming you have a spinner component
+import Spinner from "./spinner";
 
 export default function ChatWindow() {
   const {
@@ -354,7 +354,7 @@ export default function ChatWindow() {
                 </p>
               </motion.div>
             ) : (
-              exchanges.map((m) => (
+              exchanges.map((m, index) => (
                 <motion.div
                   key={m.id}
                   initial={{ opacity: 0, y: 8, scale: 0.98 }}
@@ -370,7 +370,7 @@ export default function ChatWindow() {
                   />
                   <MessageBubble
                     role="assistant"
-                    isStreaming={true}
+                    isStreaming={isLoading && index === exchanges.length - 1}
                     text={m.systemResponse.answer}
                     timestamp={m.createdAt}
                     files={m.systemResponse.citation?.files ?? []}

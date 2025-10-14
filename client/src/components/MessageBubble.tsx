@@ -10,6 +10,14 @@ import {
   ArrowPathIcon,
 } from "@heroicons/react/24/outline";
 
+const TypingIndicator = () => (
+    <div className="flex items-center space-x-1.5 py-2">
+        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+    </div>
+);
+
 export default function MessageBubble({
   role,
   text,
@@ -89,19 +97,15 @@ export default function MessageBubble({
           </div>
         )}
 
-        {text && (
-          <div className="overflow-x-auto max-w-full">
-            {role === "assistant" ? (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: isStreaming ? 1 : 0.7 }}
-              >
-                <Streamdown>{processedText}</Streamdown>
-              </motion.div>
-            ) : (
-              <p>{text}</p>
-            )}
-          </div>
+        {role === "assistant" ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            {isStreaming && !text ? <TypingIndicator /> : <Streamdown>{processedText}</Streamdown>}
+          </motion.div>
+        ) : (
+          <p>{text}</p>
         )}
       </div>
 
@@ -124,7 +128,6 @@ export default function MessageBubble({
                     <ClipboardDocumentIcon className="w-4 h-4" />
                   )}
                 </button>
-                {/* This is the new "try again" button */}
                 {!isUser && !isStreaming && onRetry && (
                   <button
                     onClick={onRetry}
@@ -145,23 +148,23 @@ export default function MessageBubble({
                 >
                   <div className="flex items-center gap-4">
                       {failedThumbs.has(file) ? (
-                      <Image
-                        src="/thumb_file.svg"
-                        alt="document thumbnail"
-                        height={40}
-                        width={40}
-                        className="rounded-md shadow-sm opacity-70"
-                      />
-                    ) : (
-                      <Image
-                        src={`${process.env.NEXT_PUBLIC_FILE_BASE_URL}/api/file/v1/thumb/${file}`}
-                        alt="document thumbnail"
-                        height={40}
-                        width={40}
-                        className="rounded-md shadow-sm"
-                        onError={() => handleThumbnailError(file)}
-                      />
-                    )}
+                        <Image
+                          src="/thumb_file.svg"
+                          alt="document thumbnail"
+                          height={40}
+                          width={40}
+                          className="rounded-md shadow-sm opacity-70"
+                        />
+                      ) : (
+                        <Image
+                          src={`${process.env.NEXT_PUBLIC_FILE_BASE_URL}/api/file/v1/thumb/${file}`}
+                          alt="document thumbnail"
+                          height={40}
+                          width={40}
+                          className="rounded-md shadow-sm"
+                          onError={() => handleThumbnailError(file)}
+                        />
+                      )}
 
                     <a
                       href={`${process.env.NEXT_PUBLIC_FILE_BASE_URL}/api/file/v1/files/${file}`}
@@ -174,13 +177,11 @@ export default function MessageBubble({
                   </div>
                   {fileInfos && Object.keys(fileInfos[index] || {}).length > 0 && (
                     <div className="text-sm text-gray-400">
-                      {/* Audio files info */}
                       {fileInfos[index].startTime ? (
                         <span className="text-white">
                           <i>Duration</i> ~ {fileInfos[index].duration}s [{fileInfos[index].startTime} - {fileInfos[index].endTime}]
                         </span>
                       ) : null}
-                      {/* Pdf or Text Files info */}
                       {fileInfos[index].pageNumbers ? (
                         <span className="text-white">
                           <i>Page</i> ~ {fileInfos[index].pageNumbers.join(", ")}

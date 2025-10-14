@@ -9,6 +9,7 @@ export function middleware(req: NextRequest) {
   if (
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
+    pathname.startsWith('/') ||
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/api/') || // Exclude API routes from redirection
     pathname.includes('.') // Assume files with extensions are static assets
