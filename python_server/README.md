@@ -4,7 +4,7 @@
 
 ## 📋 Overview
 
-The Python RAG Engine is the core AI component of the Ragnarok platform, providing sophisticated document processing, vector-based retrieval, and intelligent response generation. Built with Flask and modern AI libraries, it offers multiple pipeline modes for different use cases and security requirements.
+The Python RAG Engine is the core AI component of the NeuraNexus platform, providing sophisticated document processing, vector-based retrieval, and intelligent response generation. Built with Flask and modern AI libraries, it offers multiple pipeline modes for different use cases and security requirements.
 
 ## ✨ Features
 
@@ -150,7 +150,7 @@ CUDA drivers (for GPU acceleration)
 ```bash
 # Clone and navigate
 git clone <repository-url>
-cd ragnarok/python_server
+cd NeuraNexus/python_server
 
 # Install dependencies using uv (recommended)
 uv sync
@@ -481,7 +481,7 @@ INDEX_TYPE = "flat"
 
 ---
 
-**Built with ❤️ by Team RAGnarok**
+**Built with ❤️ by Team NeuraNexus**
 {
     "success": true,
     "query": "machine learning",
