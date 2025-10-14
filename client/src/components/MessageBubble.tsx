@@ -31,6 +31,8 @@ export default function MessageBubble({
   onRetry?: () => void;
   fileInfos?: Array<Record<string, any>>;
 }>) {
+
+  if (text === undefined) text = "";
   const isUser = role === "user";
   const time = typeof timestamp === "string" ? new Date(timestamp) : timestamp;
   const formattedTime = time.toLocaleTimeString([], {
@@ -50,8 +52,10 @@ export default function MessageBubble({
     }
   };
 
-  const processedText =
-    role === "assistant" ? text.replace(/\\n/g, "\n") : text;
+  const processedText = role === "assistant" 
+    ? text.replace(/\\n/g, '\n')
+    : text;
+
 
   const [failedThumbs, setFailedThumbs] = useState<Set<string>>(new Set());
 
