@@ -5,6 +5,7 @@ import {
   EnvelopeIcon,
   ArrowRightOnRectangleIcon,
 } from "@heroicons/react/24/outline";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 interface ProfileModalProps {
@@ -14,6 +15,10 @@ interface ProfileModalProps {
 
 export default function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
   const { user, logout } = useAuth();
+  const router = useRouter();
+  const goToAdmin = () => {
+    router.push('/admin');
+  };
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -52,7 +57,14 @@ export default function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
             </p>
           </div>
         </div>
-        <div className="mt-4">
+        <div className="mt-4 flex flex-col gap-3">
+          <button
+            onClick={goToAdmin}
+            className="w-full flex items-center justify-center gap-2 p-2.5 text-left text-sm font-semibold text-yellow-400 bg-yellow-500/10 hover:bg-yellow-500/20 rounded-lg transition-colors duration-200"
+          >
+            <ArrowRightOnRectangleIcon className="w-5 h-5" />
+            Go to admin
+          </button>
           <button
             onClick={logout}
             className="w-full flex items-center justify-center gap-2 p-2.5 text-left text-sm font-semibold text-red-400 bg-red-500/10 hover:bg-red-500/20 rounded-lg transition-colors duration-200"
