@@ -17,6 +17,15 @@ It includes a modern web interface, robust backend services, and advanced RAG ca
 
 ---
 
+<p align="center">
+  <a href="https://res.cloudinary.com/dtjemlmsu/video/upload/v1760516233/prototype_video_foamws.mp4">
+    <img src="URL_TO_YOUR_GIF_OR_THUMBNAIL" alt="Video Preview" width="600">
+  </a>
+</p>
+
+
+---
+
 ## ✨ Key Features
 
 ### 🔍 Advanced RAG Pipeline
