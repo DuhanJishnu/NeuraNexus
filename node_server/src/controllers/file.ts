@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { FileService } from "../services/file";
-import { updateFileStatusSchema,fetchDocumentsSchema,fetchDocumentsByNameSchema,fetchDocumentsByIdSchema} from "../schemas/document";
+import { updateFileStatusSchema, reindexDocumentsSchema, ingestionHeartbeatSchema, fetchDocumentsSchema,fetchDocumentsByNameSchema,fetchDocumentsByIdSchema} from "../schemas/document";
 import { CATEGORY_IDS } from "../lib/magicNumberDetection";
 
 
@@ -17,7 +17,10 @@ export const upload = async (
 ) => {
   try {
     const query = req.query;
-    const payload = req.body;
+    const payload = {
+      ...req.body,
+      uploaderUserId: req.user!.id,
+    };
 
     if (!req.files || (Array.isArray(req.files) && req.files.length === 0)) {
       return res.status(400).json({ error: 'No files uploaded' });
@@ -71,7 +74,10 @@ export const getJobStatus = async (req: Request, res: Response, next: NextFuncti
 export const serveFile = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const encryptedId = req.params.encryptedId;
-    const { filePath, mimeType } = await FileService.getFileByEncryptedId(encryptedId);
+    const { filePath, mimeType } = await FileService.getFileByEncryptedId(
+      encryptedId,
+      req.user ? { id: req.user.id, role: req.user.role } : undefined,
+    );
     
     res.setHeader('Content-Type', mimeType);
     res.sendFile(filePath);
@@ -86,7 +92,10 @@ export const serveFile = async (req: Request, res: Response, next: NextFunction)
 export const serveThumbnail = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const encryptedId = req.params.encryptedId;
-    const { filePath, mimeType } = await FileService.getThumbnailByEncryptedId(encryptedId);
+    const { filePath, mimeType } = await FileService.getThumbnailByEncryptedId(
+      encryptedId,
+      req.user ? { id: req.user.id, role: req.user.role } : undefined,
+    );
     
     res.setHeader('Content-Type', mimeType);
     res.sendFile(filePath);
@@ -97,7 +106,8 @@ export const serveThumbnail = async (req: Request, res: Response, next: NextFunc
 
 export const getUnprocessedFiles = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const batch_size: number = parseInt(req.query.batch_size as string) || 4;
+    const requestedBatchSize = parseInt(req.query.batch_size as string) || 4;
+    const batch_size = Math.min(Math.max(requestedBatchSize, 1), 100);
 
     const unprocessedFiles = await FileService.getUnprocessedFiles(batch_size);
     res.json(unprocessedFiles);
@@ -113,17 +123,49 @@ export const updateFileStatus = async (req: Request, res: Response, next: NextFu
       return res.status(400).json({ error: 'Invalid request data', details: parsedBody.error });
     }
 
-    const { documentId, status, retriesCount } = parsedBody.data;
+    const { documentId, processingLeaseId, status, vectorManifest } = parsedBody.data;
 
-    const result = await FileService.updateFileStatus(documentId, status, retriesCount);
+    const result = await FileService.updateFileStatus(
+      documentId, processingLeaseId, status, vectorManifest,
+    );
     if (result.success === true) {
       return res.status(200).json({ message: 'File status updated successfully' });
     } else {
-      return res.status(400).json({ error: result.message });
+      return res.status(409).json({ error: result.message });
     }
   } catch (error) {
     next(error);
   }
+};
+
+export const reindexDocuments = async (req: Request, res: Response) => {
+  const parsedBody = reindexDocumentsSchema.safeParse(req.body);
+  if (!parsedBody.success) {
+    return res.status(400).json({
+      error: 'Invalid reindex request',
+      details: parsedBody.error,
+    });
+  }
+  const result = await FileService.scheduleReindex(
+    parsedBody.data.documentIds,
+    parsedBody.data.targetIndexVersion,
+  );
+  return res.status(202).json(result);
+};
+
+export const heartbeatIngestionLease = async (req: Request, res: Response) => {
+  const parsedBody = ingestionHeartbeatSchema.safeParse(req.body);
+  if (!parsedBody.success) {
+    return res.status(400).json({ error: 'Invalid heartbeat request' });
+  }
+  const renewed = await FileService.heartbeatIngestionLease(
+    parsedBody.data.documentId,
+    parsedBody.data.processingLeaseId,
+  );
+  if (!renewed) {
+    return res.status(409).json({ error: 'Ingestion lease is stale or invalid' });
+  }
+  return res.status(204).send();
 };
 
 
@@ -217,7 +259,10 @@ export const getFileNamesById = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing encryptedIds in request body' });
     }
 
-    const fileNames = await FileService.getFileNamesByIds(encryptedIds);
+    const fileNames = await FileService.getFileNamesByIds(
+      encryptedIds,
+      { id: req.user!.id, role: req.user!.role },
+    );
     res.json({ fileNames });
   } catch (error) {
     res.status(500).json({ error: 'Failed to retrieve file names', message: error instanceof Error ? error.message : 'Unknown error' });

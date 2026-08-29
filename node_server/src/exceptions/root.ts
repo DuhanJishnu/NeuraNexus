@@ -8,7 +8,7 @@ export class HttpException extends Error {
     
     constructor(message:string,errorCode:ErrorCode,statusCode?:number,error?:any){
         super(message);
-        if(statusCode) this.status=statusCode;
+        this.status=statusCode ?? 500;
         this.message=message;
         this.errorCode=errorCode;
         if(error) this.errors=error;

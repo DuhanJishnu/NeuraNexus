@@ -1,6 +1,8 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma";
 import { insertInitialDocumentSchema, updateDocumentStatusSchema } from "../schemas/document";
 import { InsertInitialDocumentData, UpdateDocumentStatusData } from "../types/document";
+import { RAG_ACTIVE_INDEX_VERSION } from "../config/envExports";
 
 /**
  * Inserts a new document record into the Documents table.
@@ -19,7 +21,7 @@ export async function insertInitialDocumentData(data: InsertInitialDocumentData)
       throw new Error(`Validation failed: ${JSON.stringify(parsedBody.error)}`);
     }
 
-    const { docType, displayName, encryptedId, originalSize, fileExt } = parsedBody.data;
+    const { docType, displayName, encryptedId, originalSize, fileExt, visibility, ownerId } = parsedBody.data;
 
     const document = await prisma.document.create({
       data: {
@@ -28,6 +30,8 @@ export async function insertInitialDocumentData(data: InsertInitialDocumentData)
         documentEncryptedId: encryptedId,
         originalFileSize: originalSize,
         fileExtension: fileExt,
+        visibility,
+        ownerId: visibility === 'PRIVATE' ? ownerId : null,
       },
     });
     
@@ -169,80 +173,233 @@ export async function deleteDocumentById(documentId: number) {
 }
 
 export const getUnprocessedFilesFromDB = async (batchSize: number) => {
-  let files = []; 
+  const safeBatchSize = Math.min(Math.max(batchSize, 1), 100);
   try {
-    files = await prisma.document.findMany({
-      where: { isCompressed: true, status: { in: ['PENDING', 'FAILED'] } },
-      select: { documentEncryptedId: true, documentType: true, status: true },
-    });
+    // Claim work in the same statement that selects it. SKIP LOCKED allows
+    // multiple ingestion workers to scale horizontally without processing the
+    // same document. A stale lease is reclaimable after 15 minutes.
+    return await prisma.$queryRaw<Array<{
+      documentEncryptedId: string;
+      documentType: number;
+      status: string;
+      processingLeaseId: string;
+      targetIndexVersion: string | null;
+      visibility: 'GLOBAL' | 'PRIVATE';
+      ownerId: string | null;
+    }>>`
+      WITH active_index AS (
+        SELECT version
+        FROM "RagIndexDeployment"
+        WHERE state = 'ACTIVE'
+        LIMIT 1
+      ), candidates AS (
+        SELECT id
+        FROM "Document"
+        WHERE "isCompressed" = true
+          AND "retriesCount" < 5
+          AND (
+            status IN ('PENDING', 'FAILED')
+            OR (
+              status = 'PROCESSING'
+              AND "processingStartedAt" < NOW() - INTERVAL '15 minutes'
+            )
+          )
+        ORDER BY
+          CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END,
+          "uploadDateTime" ASC
+        LIMIT ${safeBatchSize}
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE "Document" AS document
+      SET status = 'PROCESSING',
+          "processingStartedAt" = NOW(),
+          "processingLeaseId" = gen_random_uuid()::text,
+          "targetIndexVersion" = COALESCE(
+            document."targetIndexVersion",
+            (SELECT version FROM active_index),
+            ${RAG_ACTIVE_INDEX_VERSION}
+          ),
+          "retriesCount" = document."retriesCount" + 1
+      FROM candidates
+      WHERE document.id = candidates.id
+      RETURNING
+        document."documentEncryptedId",
+        document."documentType",
+        document."processingLeaseId",
+        document."targetIndexVersion",
+        document.visibility,
+        document."ownerId",
+        document.status
+    `;
   } catch (error) {
-    console.error('Error fetching unprocessed files:', (error as Error).message);
+    console.error('Error claiming unprocessed files:', (error as Error).message);
     throw error;
   }
-
-  // Separate pending and failed
-  const pendingFiles = files.filter(f => f.status === 'PENDING');
-  const failedFiles = files.filter(f => f.status === 'FAILED');
-
-  let unprocessedFiles;
-
-  if (pendingFiles.length > 0) {
-    unprocessedFiles = pendingFiles.slice(0, batchSize);
-  } else {
-    unprocessedFiles = failedFiles.slice(0, batchSize);
-  }
-
-  return unprocessedFiles;
 };
 
-export const updateFileStatusInDB = async (documentId: string, status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED', retriesCount?: number) => {
+export const updateFileStatusInDB = async (
+  documentId: string,
+  processingLeaseId: string,
+  status: 'COMPLETED' | 'FAILED',
+  vectorManifest?: {
+    vectorIdPrefix: string;
+    chunkCount: number;
+    embeddingModel: string;
+    indexVersion: string;
+  },
+) => {
   try {
-    const updateData: any = { status };
-    if (retriesCount !== undefined) {
-      updateData.retriesCount = retriesCount;
-    }
+    return await prisma.$transaction(async transaction => {
+      const claimedDocument = await transaction.document.findFirst({
+        where: {
+          documentEncryptedId: documentId,
+          status: 'PROCESSING',
+          processingLeaseId,
+        },
+        select: { id: true, targetIndexVersion: true },
+      });
+      if (!claimedDocument) {
+        return { success: false, message: 'Ingestion lease is stale or invalid' };
+      }
+
+      const updateData: any = { status, processingLeaseId: null };
 
     if (status === 'COMPLETED') {
+      if (!vectorManifest) {
+        throw new Error('A vector manifest is required to complete ingestion');
+      }
+      if (vectorManifest.vectorIdPrefix !== `${documentId}:`) {
+        throw new Error('Vector manifest prefix does not match the document ID');
+      }
+      if (
+        claimedDocument.targetIndexVersion
+        && vectorManifest.indexVersion !== claimedDocument.targetIndexVersion
+      ) {
+        await transaction.document.updateMany({
+          where: {
+            documentEncryptedId: documentId,
+            status: 'PROCESSING',
+            processingLeaseId,
+          },
+          data: {
+            status: 'FAILED',
+            isProcessed: false,
+            processingStartedAt: null,
+            processingLeaseId: null,
+          },
+        });
+        return {
+          success: false,
+          message: `Expected index version ${claimedDocument.targetIndexVersion}`,
+        };
+      }
       updateData.isProcessed = true;
+      updateData.processedAt = new Date();
+      updateData.processingStartedAt = null;
+      updateData.vectorIdPrefix = vectorManifest.vectorIdPrefix;
+      updateData.chunkCount = vectorManifest.chunkCount;
+      updateData.embeddingModel = vectorManifest.embeddingModel;
+      updateData.indexVersion = vectorManifest.indexVersion;
+      updateData.targetIndexVersion = null;
+      updateData.indexedAt = new Date();
+    } else if (status === 'FAILED') {
+      updateData.isProcessed = false;
+      updateData.processingStartedAt = null;
     } else {
       updateData.isProcessed = false;
     }
     
-    await prisma.document.update({
-      where: { documentEncryptedId: documentId },
+      const updated = await transaction.document.updateMany({
+      where: {
+        documentEncryptedId: documentId,
+        status: 'PROCESSING',
+        processingLeaseId,
+      },
       data: updateData,
     });
-    return {
-      success: true,
-    };
+      if (updated.count !== 1) {
+        return { success: false, message: 'Ingestion lease expired during update' };
+      }
+      if (status === 'COMPLETED' && vectorManifest) {
+        const indexedAt = new Date();
+        await transaction.documentIndexManifest.upsert({
+          where: {
+            documentId_indexVersion: {
+              documentId: claimedDocument.id,
+              indexVersion: vectorManifest.indexVersion,
+            },
+          },
+          create: {
+            documentId: claimedDocument.id,
+            ...vectorManifest,
+            indexedAt,
+          },
+          update: {
+            vectorIdPrefix: vectorManifest.vectorIdPrefix,
+            chunkCount: vectorManifest.chunkCount,
+            embeddingModel: vectorManifest.embeddingModel,
+            indexedAt,
+          },
+        });
+      }
+      return { success: true };
+    });
   } catch (error) {
     console.error('Error updating file status:', (error as Error).message);
     throw error;
   }
 };
 
-export const getFileNamesByIdsFromDB = async (encryptedIds: string[]) => {
-  try {
-    const documents = await prisma.document.findMany({
-      where: { documentEncryptedId: { in: encryptedIds } },
-      select: { documentEncryptedId: true, displayName: true },
+export const reindexDocumentsInDB = async (
+  documentIds: string[],
+  targetIndexVersion: string,
+) => {
+  const scheduled = await prisma.$transaction(async transaction => {
+    const eligible = await transaction.document.findMany({
+      where: {
+        documentEncryptedId: { in: documentIds },
+        isCompressed: true,
+        status: { not: 'PROCESSING' },
+      },
+      select: { id: true },
     });
-
-    // Make a map for fast O(1) lookups
-    const docMap = new Map(
-      documents.map(doc => [doc.documentEncryptedId, doc.displayName])
-    );
-
-    // Preserve order of input IDs
-    const orderedFileNames = encryptedIds
-      .map(id => docMap.get(id))
-      .filter(Boolean);
-
-    console.log('Ordered file names:', orderedFileNames);
-    return orderedFileNames;
-  } catch (error) {
-    console.error('Error fetching file names by IDs:', (error as Error).message);
-    throw error;
-  }
+    const ids = eligible.map(document => document.id);
+    if (!ids.length) return 0;
+    await transaction.documentIndexManifest.deleteMany({
+      where: { documentId: { in: ids }, indexVersion: targetIndexVersion },
+    });
+    const result = await transaction.document.updateMany({
+      where: { id: { in: ids }, status: { not: 'PROCESSING' } },
+      data: {
+        status: 'PENDING',
+        retriesCount: 0,
+        processingStartedAt: null,
+        processingLeaseId: null,
+        processedAt: null,
+        isProcessed: false,
+        vectorIdPrefix: null,
+        chunkCount: null,
+        embeddingModel: null,
+        indexedAt: null,
+        targetIndexVersion,
+      },
+    });
+    return result.count;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  return { requested: documentIds.length, scheduled };
 };
 
+export const heartbeatIngestionLeaseInDB = async (
+  documentId: string,
+  processingLeaseId: string,
+) => {
+  const result = await prisma.document.updateMany({
+    where: {
+      documentEncryptedId: documentId,
+      status: 'PROCESSING',
+      processingLeaseId,
+    },
+    data: { processingStartedAt: new Date() },
+  });
+  return result.count === 1;
+};

@@ -1,4 +1,12 @@
-export const errorPage = (req, res, status, title, message) => {
+import { Request, Response } from 'express';
+
+export const errorPage = (
+  _req: Request,
+  res: Response,
+  status: number,
+  title: string,
+  message: string,
+) => {
     res.status(status).send(`
       <!DOCTYPE html>
       <html lang="en">

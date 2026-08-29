@@ -17,7 +17,7 @@ export async function compressPDF(inputPath: string, outputPath: string, quality
   // Step 1: Compress PDF using Ghostscript
   const compressCmd = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/${quality} -dNOPAUSE -dQUIET -dBATCH -sOutputFile="${outputPath}" "${inputPath}"`;
 
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     exec(compressCmd, (error) => {
       if (error) {
         console.error('Compression failed:', error.message);
@@ -42,7 +42,7 @@ export async function compressPDF(inputPath: string, outputPath: string, quality
 
   const thumbCmd = `pdftoppm -jpeg -f 1 -singlefile "${outputPath}" "${thumbOutputBase}"`;
 
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     exec(thumbCmd, (error) => {
       if (error) {
         console.error('Thumbnail generation failed:', error.message);

@@ -6,6 +6,11 @@ export const insertInitialDocumentSchema = z.object({
   encryptedId: z.string(),
   originalSize: z.number(),
   fileExt: z.string(),
+  visibility: z.enum(['GLOBAL', 'PRIVATE']).default('GLOBAL'),
+  ownerId: z.string().optional(),
+}).refine((data) => data.visibility !== 'PRIVATE' || Boolean(data.ownerId), {
+  message: 'Private documents require an ownerId',
+  path: ['ownerId'],
 });
 
 
@@ -26,8 +31,26 @@ export const updateDocumentStatusSchema = z.object({
 
 export const updateFileStatusSchema = z.object({
   documentId: z.string(),
-  status: z.enum(['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED']),
-  retriesCount: z.number().int().optional(),
+  processingLeaseId: z.string().uuid(),
+  status: z.enum(['COMPLETED', 'FAILED']),
+  vectorManifest: z.object({
+    vectorIdPrefix: z.string().min(1),
+    chunkCount: z.number().int().positive(),
+    embeddingModel: z.string().min(1),
+    indexVersion: z.string().min(1),
+  }).optional(),
+});
+
+export const reindexDocumentsSchema = z.object({
+  documentIds: z.array(
+    z.string().regex(/^[A-Za-z0-9_]+$/)
+  ).min(1).max(100),
+  targetIndexVersion: z.string().trim().min(1).max(100),
+});
+
+export const ingestionHeartbeatSchema = z.object({
+  documentId: z.string().regex(/^[A-Za-z0-9_]+$/),
+  processingLeaseId: z.string().uuid(),
 });
 
 
@@ -62,4 +85,3 @@ export const fetchDocumentsByNameSchema = z.object({
 export const fetchDocumentsByIdSchema = z.object({
   id: z.string().min(1, "Encrypted document ID is required"),
 });
-

@@ -12,6 +12,6 @@ authRoutes.get('/refresh',errorHandler(refresh))
 authRoutes.post('/logout', authMiddleware, errorHandler(logout))
 authRoutes.get('/me', authMiddleware, errorHandler(me))
 authRoutes.get('/getuser',[authMiddleware, adminMiddleware], errorHandler(getUser) );
-authRoutes.get('/makeadmin',[authMiddleware, adminMiddleware], errorHandler(makeAdmin) );
+authRoutes.patch('/makeadmin',[authMiddleware, adminMiddleware], errorHandler(makeAdmin) );
 
 export default authRoutes;

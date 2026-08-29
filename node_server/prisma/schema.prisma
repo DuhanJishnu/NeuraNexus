@@ -25,6 +25,17 @@ enum DocumentStatus {
   FAILED
 }
 
+enum DocumentVisibility {
+  GLOBAL
+  PRIVATE
+}
+
+enum RagIndexState {
+  ACTIVE
+  CANDIDATE
+  RETIRED
+}
+
 model User {
   id            String         @id @default(cuid())
   username      String         @unique
@@ -35,6 +46,7 @@ model User {
   
   conversations Conversation[]
   tokens        RefreshToken[] 
+  documents     Document[]
 }
 
 model Conversation {
@@ -71,6 +83,9 @@ model Document {
   documentType        Int
   displayName         String
   documentEncryptedId String   @unique
+  visibility          DocumentVisibility @default(GLOBAL)
+  ownerId             String?
+  owner               User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   originalFileSize    Float
   fileExtension       String
   uploadDateTime      DateTime @default(now())
@@ -78,12 +93,40 @@ model Document {
   isProcessed         Boolean  @default(false)
   status              DocumentStatus @default(PENDING)
   retriesCount        Int      @default(0)
+  processingStartedAt DateTime?
+  processingLeaseId   String?
+  processedAt         DateTime?
+  vectorIdPrefix      String?
+  chunkCount          Int?
+  embeddingModel      String?
+  indexVersion        String?
+  targetIndexVersion  String?
+  indexedAt           DateTime?
   documentPath        String?
   currentFileSize     Float?
   compressedDateTime  DateTime?
   thumbPath           String?
   createdAt           DateTime @default("2025-10-02T20:00:00+05:30")
+  indexManifests      DocumentIndexManifest[]
+
+  @@index([status, retriesCount, uploadDateTime])
+  @@index([processingLeaseId])
+  @@index([visibility, ownerId, status])
  
+}
+
+model DocumentIndexManifest {
+  id             Int      @id @default(autoincrement())
+  documentId     Int
+  document       Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  indexVersion   String
+  vectorIdPrefix String
+  chunkCount     Int
+  embeddingModel String
+  indexedAt      DateTime @default(now())
+
+  @@unique([documentId, indexVersion])
+  @@index([indexVersion, documentId])
 }
 
 model FileContainer {
@@ -98,4 +141,14 @@ model FileContainer {
   lastUpdated         DateTime    @updatedAt
 }
 
+model RagIndexDeployment {
+  version           String        @id
+  state             RagIndexState @default(CANDIDATE)
+  evaluationMetrics Json?
+  evaluatedAt       DateTime?
+  promotedAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
+  @@index([state, updatedAt])
+}

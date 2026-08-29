@@ -247,8 +247,10 @@ export const getUser = async (req: Request, res: Response, next: NextFunction) =
     });
 };
 export const makeAdmin = async (req: Request, res: Response, next: NextFunction) => {
-  
-    const userId = req.body.data;
+    const userId = req.body.userId;
+    if (typeof userId !== "string" || !userId.trim()) {
+      throw new BadRequestException("userId is required", ErrorCode.UNPROCESSABLE_ENTITY);
+    }
     const user = await prismaClient.user.findUnique({
       where: { id: userId },
     });

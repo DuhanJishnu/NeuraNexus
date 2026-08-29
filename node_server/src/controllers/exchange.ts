@@ -1,9 +1,11 @@
 import { Request, Response } from "express";
 import { prisma } from "../config/prisma";
 import { Conversation } from "../types/conversation";
-import { PYTHON_SERVER_URL, QUERY_REQUEST_TIMEOUT_MS } from "../config/envExports";
+import { INGESTION_SERVICE_TOKEN, PYTHON_SERVER_URL, QUERY_REQUEST_TIMEOUT_MS } from "../config/envExports";
 import { redis } from "../config/redis";
 import { SystemResponseSchema } from "../schemas/exchange";
+import { randomUUID } from "crypto";
+import { IndexDeploymentService } from "../services/indexDeployment";
 
 const prismaClient = prisma;
 
@@ -21,6 +23,7 @@ export const createExchange = async (req: Request, res: Response) => {
   let { convTitle } = req.body; 
   let newConversation: Conversation | null = null;
   let conversationId = convId === "" ? null : convId;
+  const userId = req.user!.id;
 
   if(!convTitle){
     convTitle = "A new Title";
@@ -30,6 +33,14 @@ export const createExchange = async (req: Request, res: Response) => {
       data: { userId: req.user!.id, title: convTitle },
     });
     conversationId = newConversation.id;
+  } else {
+    const ownedConversation = await prismaClient.conversation.findFirst({
+      where: { id: conversationId, userId },
+      select: { id: true },
+    });
+    if (!ownedConversation) {
+      return res.status(404).json({ error: "Conversation not found." });
+    }
   }
 
   await prismaClient.conversation.update({
@@ -37,7 +48,14 @@ export const createExchange = async (req: Request, res: Response) => {
     data: { updatedAt: new Date() },
   });
 
-  const responseId = Date.now().toString();
+  const responseId = randomUUID();
+  const activeIndexVersion = await IndexDeploymentService.getActiveVersion();
+  await redis.set(
+    `responseOwner:${responseId}`,
+    userId,
+    "EX",
+    Math.ceil(QUERY_REQUEST_TIMEOUT_MS / 1000) + 300,
+  );
 
   const exchange = await prismaClient.exchange.create({
     data: {
@@ -54,11 +72,20 @@ export const createExchange = async (req: Request, res: Response) => {
     try {
       pyRes = await fetch(`${PYTHON_SERVER_URL}/api/chat/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${INGESTION_SERVICE_TOKEN}`,
+        "X-Request-Id": req.get("x-request-id") || responseId,
+      },
       body: JSON.stringify({ 
         question: user_query, 
         conv_id: conversationId,
-        secure_mode: false
+        secure_mode: false,
+        retrieval_scope: {
+          principal_id: userId,
+          include_global: true,
+        },
+        index_version: activeIndexVersion,
       }),
     });
     } catch (error) {
@@ -157,6 +184,13 @@ export const updateExchange = async (req: Request, res: Response) => {
       .json({ error: "exchangeId is required and cannot be empty." });
   }
 
+  const ownedExchange = await prismaClient.exchange.findFirst({
+    where: { id: exchangeId, conversation: { userId: req.user!.id } },
+    select: { id: true },
+  });
+  if (!ownedExchange) {
+    return res.status(404).json({ error: "Exchange not found." });
+  }
   const updatedExchange = await prismaClient.exchange.update({
     where: { id: exchangeId },
     data: { systemResponse: parsedSystemResponse.data },
@@ -170,15 +204,21 @@ export const updateExchange = async (req: Request, res: Response) => {
 
 export const streamResponse = async (req: Request, res: Response) => {
   const { responseId } = req.params;
+  const responseOwner = await redis.get(`responseOwner:${responseId}`);
+  if (!responseOwner || responseOwner !== req.user!.id) {
+    return res.status(404).json({ error: "Response stream not found." });
+  }
 
   console.log("SSE: Client connected for responseId:", responseId);
 
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
-  let lastId = "0"; // start from beginning
+  const requestedLastId = String(req.query.lastEventId || "0-0");
+  let lastId = /^\d+-\d+$/.test(requestedLastId) ? requestedLastId : "0-0";
 
   (async function readLoop() {
     let lastMessageTime = Date.now();
@@ -199,6 +239,7 @@ export const streamResponse = async (req: Request, res: Response) => {
             res.write("event: close\n\n");
             res.write("data: timeout\n\n");
             res.end();
+            await redis.del(`responseOwner:${responseId}`);
             return;
           }
           continue;
@@ -216,12 +257,15 @@ export const streamResponse = async (req: Request, res: Response) => {
 
             // forward to client
             console.log("SSE: Sending message to client:", msg);
-            res.write(`event: ${msg.type}\n`);
+            const eventType = msg.type === "error" ? "server_error" : msg.type;
+            res.write(`id: ${id}\n`);
+            res.write(`event: ${eventType}\n`);
             res.write(`data: ${msg.data}\n\n`);
 
-            if (msg.type === "final") {
+            if (msg.type === "final" || msg.type === "error") {
               res.write("event: close\n\n");
               res.end(); 
+              await redis.del(`responseOwner:${responseId}`);
               return;
             }
           }
@@ -240,7 +284,7 @@ export const getExchanges = async (req: Request, res: Response) => {
   const { conversationId, page } = req.body.data;
   console.log("conversationId, page : ", conversationId, page);
   const exchanges = await prismaClient.exchange.findMany({
-    where: { conversationId },
+    where: { conversationId, conversation: { userId: req.user!.id } },
     orderBy: { createdAt: "desc" },
     skip: (page - 1) * pageSize,
     take: pageSize,

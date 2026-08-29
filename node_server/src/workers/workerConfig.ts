@@ -8,11 +8,6 @@ export const workerConfig = {
   stalledInterval: 60 * 1000,    // Check for stalled jobs every 60 seconds
   maxStalledCount: 3,            // Max number of times a job can be stalled
   concurrency: 1,                // Process one job at a time per worker
-  // Add these settings to prevent lock issues
-  settings: {
-    stalledInterval: 60 * 1000,
-    maxStalledCount: 3,
-  }
 };
 
 export const createWorker = (queueName: string, processor: any) => {

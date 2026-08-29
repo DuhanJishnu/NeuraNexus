@@ -27,7 +27,7 @@ The Node.js server acts as the main API gateway for the NeuraNexus platform, han
 - **Chat History**: Persistent conversation storage and retrieval
 - **Exchange System**: Message exchange tracking with metadata
 - **Python RAG Integration**: Seamless integration with hybrid search RAG pipeline
-- **AI Model Support**: Interfaces with Gemma3:4b LLM and nomic-embed-text embeddings
+- **AI Model Support**: Routes authenticated RAG traffic to Gemini generation and embedding services
 - **Pagination**: Efficient conversation and message pagination
 - **Real-time Updates**: Support for real-time chat functionality with streaming responses
 

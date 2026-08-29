@@ -4,6 +4,8 @@ export interface InsertInitialDocumentData {
   encryptedId: string;
   originalSize: number;
   fileExt: string;
+  visibility: 'GLOBAL' | 'PRIVATE';
+  ownerId?: string;
 }
 
 export interface UpdateDocumentStatusData {

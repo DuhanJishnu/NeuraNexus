@@ -4,11 +4,12 @@ import fs from 'fs/promises';
 import mime from 'mime-types';
 import { redisConnection } from '../config/redis';
 import { generateHash } from '../lib/crypto';
-import { insertInitialDocumentData, getFilePath, getThumbFilePath, getUnprocessedFilesFromDB, updateFileStatusInDB, getFileNamesByIdsFromDB } from '../lib/dbOperations';
+import { insertInitialDocumentData, getFilePath, getThumbFilePath, getUnprocessedFilesFromDB, updateFileStatusInDB, reindexDocumentsInDB, heartbeatIngestionLeaseInDB } from '../lib/dbOperations';
 import { IMAGE_MAX_SIZE } from '../config/envExports';
 import { getFolderHashAndFileCount } from '../lib/fileStructure';
 import { CATEGORY_IDS, FileTypeDetectionResult } from '../lib/magicNumberDetection';
 import { prisma } from "../config/prisma";
+import { INGESTION_SERVICE_TOKEN, PYTHON_SERVER_URL } from '../config/envExports';
 
 
 // Queue configuration
@@ -32,6 +33,27 @@ const pdfProcessingQueue = new Queue('pdf-processing', queueConfig);
 const documentProcessingQueue = new Queue('document-processing', queueConfig);
 
 export class FileService {
+  private static async assertDocumentReadable(
+    encryptedId: string,
+    requester?: { id: string; role: string },
+  ): Promise<void> {
+    // An undefined requester is the authenticated ingestion service.
+    if (!requester) return;
+    const document = await prisma.document.findUnique({
+      where: { documentEncryptedId: encryptedId },
+      select: { visibility: true, ownerId: true },
+    });
+    if (
+      !document
+      || (
+        document.visibility !== 'GLOBAL'
+        && document.ownerId !== requester.id
+        && requester.role !== 'ADMIN'
+      )
+    ) {
+      throw new Error('File not found');
+    }
+  }
   
     /**
    * Safe file deletion with retry logic for Windows
@@ -183,7 +205,26 @@ export class FileService {
       return "Document not found";
     }
 
-    const pathsToDelete = [document.documentPath, document.thumbPath].filter(Boolean);
+    const vectorDeleteResponse = await fetch(
+      `${PYTHON_SERVER_URL}/api/vectors/documents/${encodeURIComponent(id)}`,
+      {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${INGESTION_SERVICE_TOKEN}`,
+        },
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    if (!vectorDeleteResponse.ok) {
+      const errorBody = await vectorDeleteResponse.text();
+      throw new Error(
+        `Vector deletion failed (${vectorDeleteResponse.status}): ${errorBody}`,
+      );
+    }
+
+    const pathsToDelete = [document.documentPath, document.thumbPath].filter(
+      (filePath): filePath is string => Boolean(filePath),
+    );
 
     for (const filePath of pathsToDelete) {
       try {
@@ -255,7 +296,11 @@ export class FileService {
       displayName: file.originalname,
       encryptedId,
       originalSize: sizeInMB,
-      fileExt: path.extname(file.originalname)
+      fileExt: path.extname(file.originalname),
+      visibility: payload.visibility === 'PRIVATE' ? 'PRIVATE' : 'GLOBAL',
+      ownerId: payload.visibility === 'PRIVATE'
+        ? (payload.ownerId || payload.uploaderUserId)
+        : undefined,
   });
 
     // Generate sanitized filename
@@ -357,7 +402,11 @@ export class FileService {
       displayName: secureOriginalName,
       encryptedId,
       originalSize: sizeInMB,
-      fileExt: detectedExtension
+      fileExt: detectedExtension,
+      visibility: payload.visibility === 'PRIVATE' ? 'PRIVATE' : 'GLOBAL',
+      ownerId: payload.visibility === 'PRIVATE'
+        ? (payload.ownerId || payload.uploaderUserId)
+        : undefined,
     });
 
     // Generate sanitized filename using detected extension for security
@@ -642,7 +691,11 @@ export class FileService {
   /**
    * Get file by encrypted ID
    */
-  static async getFileByEncryptedId(encryptedId: string): Promise<{ filePath: string; mimeType: string }> {
+  static async getFileByEncryptedId(
+    encryptedId: string,
+    requester?: { id: string; role: string },
+  ): Promise<{ filePath: string; mimeType: string }> {
+    await this.assertDocumentReadable(encryptedId, requester);
     const filePath = await getFilePath(encryptedId);
 
     if (typeof filePath === 'number') {
@@ -673,7 +726,11 @@ export class FileService {
   /**
    * Get thumbnail by encrypted ID
    */
-  static async getThumbnailByEncryptedId(encryptedId: string): Promise<{ filePath: string; mimeType: string }> {
+  static async getThumbnailByEncryptedId(
+    encryptedId: string,
+    requester?: { id: string; role: string },
+  ): Promise<{ filePath: string; mimeType: string }> {
+    await this.assertDocumentReadable(encryptedId, requester);
     const filePath = await getThumbFilePath(encryptedId);
 
     if (typeof filePath === 'number') {
@@ -705,22 +762,57 @@ export class FileService {
     return unprocessedFiles;
   }
 
-  static async updateFileStatus(documentId: string, status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED', retriesCount?: number): Promise<any> {
+  static async updateFileStatus(
+    documentId: string,
+    processingLeaseId: string,
+    status: 'COMPLETED' | 'FAILED',
+    vectorManifest?: {
+      vectorIdPrefix: string;
+      chunkCount: number;
+      embeddingModel: string;
+      indexVersion: string;
+    },
+  ): Promise<any> {
     try {
-      const result = await updateFileStatusInDB(documentId, status, retriesCount);
+      const result = await updateFileStatusInDB(
+        documentId, processingLeaseId, status, vectorManifest,
+      );
       return result;
     } catch (error) {
       throw new Error('Failed to update file status');
     }
   }
 
-  static async getFileNamesByIds(encryptedIds: string[]): Promise<any[]> {
-    try {
-      const result = await getFileNamesByIdsFromDB(encryptedIds);
-      return result;
-    } catch (error) {
-      throw new Error('Failed to retrieve file names');
-    }
+  static async scheduleReindex(documentIds: string[], targetIndexVersion: string) {
+    return reindexDocumentsInDB(documentIds, targetIndexVersion);
+  }
+
+  static async heartbeatIngestionLease(
+    documentId: string, processingLeaseId: string,
+  ) {
+    return heartbeatIngestionLeaseInDB(documentId, processingLeaseId);
+  }
+
+  static async getFileNamesByIds(
+    encryptedIds: string[],
+    requester: { id: string; role: string },
+  ): Promise<string[]> {
+    const documents = await prisma.document.findMany({
+      where: {
+        documentEncryptedId: { in: encryptedIds },
+        ...(requester.role === 'ADMIN' ? {} : {
+          OR: [
+            { visibility: 'GLOBAL' as const },
+            { visibility: 'PRIVATE' as const, ownerId: requester.id },
+          ],
+        }),
+      },
+      select: { documentEncryptedId: true, displayName: true },
+    });
+    const names = new Map(
+      documents.map(document => [document.documentEncryptedId, document.displayName]),
+    );
+    return encryptedIds.flatMap(id => names.has(id) ? [names.get(id)!] : []);
   }
 
   /**
