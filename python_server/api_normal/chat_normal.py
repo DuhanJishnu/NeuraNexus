@@ -8,6 +8,11 @@ from models.vector_store import VectorDB
 
 chat_bp = Blueprint('chat', __name__)
 
+
+def _sse_event(event_type, data):
+    """Serialize a Server-Sent Event using syntax supported by Python 3.11."""
+    return f"data: {json.dumps({'type': event_type, 'data': data})}\n\n"
+
 # Initialize components
 embedding_service = EmbeddingService()
 vector_db = VectorDB()
@@ -65,71 +70,53 @@ def chat_stream():
 
         def generate():
             try:
-                # Standard pipeline
                 retrieved_docs = retriever.retrieve(question)
-                
-                # Send retrieval info
-                yield f"data: {json.dumps({
-                    'type': 'retrieval_info',
-                    'data': {
-                        'documents_retrieved': len(retrieved_docs)
-                    }
-                })}\n\n"
+                yield _sse_event('retrieval_info', {
+                    'documents_retrieved': len(retrieved_docs)
+                })
                 
                 if not retrieved_docs:
-                    yield f"data: {json.dumps({
-                        'type': 'final',
-                        'data': {
-                            'success': True,
-                            'answer': "I couldn't find relevant information in the documents to answer your question.",
-                            'citations': [],
-                            'retrieved_documents': []
-                        }
-                    })}\n\n"
+                    yield _sse_event('final', {
+                        'success': True,
+                        'answer': "I couldn't find relevant information in the documents to answer your question.",
+                        'citations': [],
+                        'retrieved_documents': []
+                    })
                     return
 
-                # Generate streaming response (assuming llm_grounding supports streaming)
+                response = {"citations": []}
                 if hasattr(llm_grounding, 'generate_response_stream'):
-                    # If the LLM supports streaming
                     stream_generator = llm_grounding.generate_response_stream(question, retrieved_docs)
+                    answer_chunks = []
                     for chunk in stream_generator:
-                        yield f"data: {json.dumps({
-                            'type': 'answer_chunk',
-                            'data': chunk
-                        })}\n\n"
+                        answer_chunks.append(chunk)
+                        yield _sse_event('answer_chunk', chunk)
+                    response['citations'] = llm_grounding.citations_for_response(
+                        ''.join(answer_chunks), retrieved_docs
+                    )
                 else:
-                    # Fallback: simulate streaming
                     response = llm_grounding.generate_response(question, retrieved_docs)
                     answer = response.get("answer", "")
-                    
-                    # Stream answer word by word
                     words = answer.split()
                     for i, word in enumerate(words):
-                        yield f"data: {json.dumps({
-                            'type': 'answer_chunk',
-                            'data': word + (' ' if i < len(words) - 1 else '')
-                        })}\n\n"
-                        time.sleep(0.03)  # Adjust speed as needed
+                        yield _sse_event(
+                            'answer_chunk',
+                            word + (' ' if i < len(words) - 1 else '')
+                        )
+                        time.sleep(0.03)
                 
-                # Send final data with citations
-                yield f"data: {json.dumps({
-                    'type': 'final',
-                    'data': {
-                        'success': True,
-                        'question': question,
-                        'citations': response.get('citations', []),
-                        'retrieved_documents': retrieved_docs
-                    }
-                })}\n\n"
+                yield _sse_event('final', {
+                    'success': True,
+                    'question': question,
+                    'citations': response.get('citations', []),
+                    'retrieved_documents': retrieved_docs
+                })
 
             except Exception as e:
-                yield f"data: {json.dumps({
-                    'type': 'error',
-                    'data': {
-                        'error': str(e),
-                        'success': False
-                    }
-                })}\n\n"
+                yield _sse_event('error', {
+                    'error': str(e),
+                    'success': False
+                })
 
         return Response(
             generate(),
@@ -143,11 +130,8 @@ def chat_stream():
 
     except Exception as e:
         def error_generate():
-            yield f"data: {json.dumps({
-                'type': 'error',
-                'data': {
-                    'success': False,
-                    'error': str(e)
-                }
-            })}\n\n"
+            yield _sse_event('error', {
+                'success': False,
+                'error': str(e)
+            })
         return Response(error_generate(), mimetype='text/event-stream')

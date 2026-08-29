@@ -1,12 +1,13 @@
-from langchain_ollama import OllamaLLM
+from .gemini_client import GeminiLLM
+from config import Config
 from langchain.prompts import PromptTemplate
 from typing import List, Dict, Any
 from .hallucination_detector import HallucinationDetector
 import re
 
 class SafeLLMGrounding:
-    def __init__(self, model_name: str = "gemma3:4b"):
-        self.llm = OllamaLLM(model=model_name)
+    def __init__(self, model_name: str = Config.LLM_MODEL):
+        self.llm = GeminiLLM(model=model_name)
         self.hallucination_detector = HallucinationDetector()
         self.prompt_template = self.hallucination_detector.create_safety_prompt()
     
@@ -60,7 +61,7 @@ class SafeLLMGrounding:
                 "hallucination_risk": hallucination_risk,
                 "retrieval_confidence": confidence_metrics["overall_confidence"]
             }
-            
+
         except Exception as e:
             return {
                 "answer": f"Error generating response: {str(e)}",
@@ -70,6 +71,22 @@ class SafeLLMGrounding:
                 "safety_check": "failed",
                 "error": str(e)
             }
+
+    def generate_safe_response_stream(
+        self, question: str, retrieved_docs: List[Dict], confidence_metrics: Dict
+    ):
+        """Stream only after retrieval confidence has passed the safety gate."""
+        if not confidence_metrics.get("should_proceed", False):
+            yield self._create_low_confidence_response(confidence_metrics)["answer"]
+            return
+        prompt = self.prompt_template.format(
+            context=self._format_context_with_citations(retrieved_docs),
+            question=question,
+        )
+        yield from self.llm.stream(prompt)
+
+    def citations_for_response(self, response: str, retrieved_docs: List[Dict]):
+        return self._extract_citations(response, retrieved_docs)
     
     def _create_low_confidence_response(self, confidence_metrics: Dict) -> Dict[str, Any]:
         """Create response when confidence is too low"""

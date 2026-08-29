@@ -1,22 +1,9 @@
-import numpy as np
+import statistics
 from typing import List, Dict, Any, Tuple
-from sentence_transformers import CrossEncoder
-import re
 
 class ConfidenceScorer:
     def __init__(self):
-        # Initialize cross-encoder for relevance scoring
-        self.cross_encoder = None
-        self._initialize_models()
-    
-    def _initialize_models(self):
-        """Initialize models for confidence scoring"""
-        try:
-            # Use a lightweight cross-encoder for relevance scoring
-            self.cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
-        except:
-            print("Warning: Cross-encoder not available, using fallback scoring")
-            self.cross_encoder = None
+        pass
     
     def calculate_retrieval_confidence(self, query: str, retrieved_docs: List[Dict]) -> Dict[str, float]:
         """Calculate multiple confidence metrics for retrieval"""
@@ -25,6 +12,8 @@ class ConfidenceScorer:
                 "overall_confidence": 0.0,
                 "max_similarity": 0.0,
                 "mean_similarity": 0.0,
+                "max_evidence": 0.0,
+                "mean_evidence": 0.0,
                 "coverage_score": 0.0,
                 "relevance_score": 0.0,
                 "sufficient_content": False
@@ -32,7 +21,13 @@ class ConfidenceScorer:
         
         similarity_scores = [doc.get('similarity_score', 0) for doc in retrieved_docs]
         max_similarity = max(similarity_scores) if similarity_scores else 0.0
-        mean_similarity = np.mean(similarity_scores) if similarity_scores else 0.0
+        mean_similarity = statistics.fmean(similarity_scores) if similarity_scores else 0.0
+        evidence_scores = [
+            doc.get('relevance_score', doc.get('similarity_score', 0))
+            for doc in retrieved_docs
+        ]
+        max_evidence = max(evidence_scores) if evidence_scores else 0.0
+        mean_evidence = statistics.fmean(evidence_scores) if evidence_scores else 0.0
         
         # Calculate coverage score (how well the query terms are covered)
         coverage_score = self._calculate_coverage_score(query, retrieved_docs)
@@ -46,16 +41,19 @@ class ConfidenceScorer:
         
         # Overall confidence (weighted combination)
         overall_confidence = (
-            0.4 * max_similarity +
-            0.3 * mean_similarity +
+            0.4 * max_evidence +
+            0.25 * mean_evidence +
             0.2 * coverage_score +
-            0.1 * relevance_score
+            0.1 * relevance_score +
+            0.05 * max_similarity
         )
         
         return {
             "overall_confidence": float(overall_confidence),
             "max_similarity": float(max_similarity),
             "mean_similarity": float(mean_similarity),
+            "max_evidence": float(max_evidence),
+            "mean_evidence": float(mean_evidence),
             "coverage_score": float(coverage_score),
             "relevance_score": float(relevance_score),
             "sufficient_content": sufficient_content
@@ -78,29 +76,24 @@ class ConfidenceScorer:
     
     def _calculate_relevance_score(self, query: str, retrieved_docs: List[Dict]) -> float:
         """Calculate relevance score using cross-encoder"""
-        if not self.cross_encoder or not retrieved_docs:
-            return 0.5  # Neutral fallback
-        
-        try:
-            # Sample the most relevant documents for cross-encoding
-            sample_docs = retrieved_docs[:3]  # Use top 3 for efficiency
-            pairs = [(query, doc.get('content', '')[:500]) for doc in sample_docs]
-            
-            scores = self.cross_encoder.predict(pairs)
-            return float(np.mean(scores))
-        except:
-            return 0.5
+        scores = [
+            doc["cross_encoder_score"]
+            for doc in retrieved_docs[:5]
+            if doc.get("cross_encoder_score") is not None
+        ]
+        return float(statistics.fmean(scores)) if scores else 0.5
     
     def should_proceed_with_llm(self, confidence_metrics: Dict) -> Tuple[bool, str]:
         """Determine if we should proceed with LLM generation"""
         overall_conf = confidence_metrics["overall_confidence"]
         max_sim = confidence_metrics["max_similarity"]
+        max_evidence = confidence_metrics.get("max_evidence", max_sim)
         sufficient_content = confidence_metrics["sufficient_content"]
         
         # Decision matrix
         if overall_conf < 0.3:
             return False, "Very low confidence in retrieved documents"
-        elif max_sim < 0.5:
+        elif max_evidence < 0.5:
             return False, "No highly relevant documents found"
         elif not sufficient_content:
             return False, "Insufficient content for reliable answer"

@@ -3,19 +3,42 @@ import json
 import logging
 import mimetypes
 import requests
+from dataclasses import dataclass
 from typing import List, Optional
 
 API_BASE_URL = os.environ.get("API_URL")
+SERVICE_TOKEN = os.environ.get("INGESTION_SERVICE_TOKEN")
 
-def get_files_from_api(batch_size: int) -> List[str]:
+
+@dataclass(frozen=True)
+class IngestionJob:
+    document_id: str
+    document_type: int
+    processing_lease_id: str
+    file_path: str
+    target_index_version: Optional[str] = None
+    visibility: str = "GLOBAL"
+    owner_id: Optional[str] = None
+
+
+def _service_headers() -> dict:
+    if not SERVICE_TOKEN:
+        raise RuntimeError("INGESTION_SERVICE_TOKEN is required")
+    return {"Authorization": f"Bearer {SERVICE_TOKEN}"}
+
+def get_files_from_api(batch_size: int) -> List[IngestionJob]:
     """
-    Fetch doc metadata from backend, download each file named by its documentEncryptedId,
-    and return absolute saved paths.
+    Atomically claimed documents are downloaded and returned with their lease.
     """
     try:
         endpoint = f"{API_BASE_URL}/api/file/v1/unprocessed"
         params = {"batch_size": batch_size}
-        resp = requests.get(endpoint, params=params, timeout=15)
+        resp = requests.get(
+            endpoint,
+            params=params,
+            headers=_service_headers(),
+            timeout=15,
+        )
         resp.raise_for_status()
 
         files = resp.json()
@@ -23,62 +46,45 @@ def get_files_from_api(batch_size: int) -> List[str]:
             logging.warning("API returned non-list data: %s", files)
             return []
 
-        saved_paths = []
+        jobs = []
         for doc in files:
             if not isinstance(doc, dict):
                 continue
             doc_id = doc.get("documentEncryptedId")
             doc_type = doc.get("documentType")
-            if not doc_id:
-                logging.warning("Skipping doc without documentEncryptedId: %s", doc)
+            processing_lease_id = doc.get("processingLeaseId")
+            if (
+                not doc_id
+                or not processing_lease_id
+                or not isinstance(doc_type, int)
+            ):
+                logging.warning("Skipping malformed ingestion claim: %s", doc)
                 continue
 
             url = f"{API_BASE_URL}/api/file/v1/files/{doc_id}"
             saved = download_file(url, doc_id, doc_type)
             if saved:
-                saved_paths.append(saved)
+                jobs.append(IngestionJob(
+                    document_id=doc_id,
+                    document_type=doc_type,
+                    processing_lease_id=processing_lease_id,
+                    file_path=saved,
+                    target_index_version=doc.get("targetIndexVersion"),
+                    visibility=doc.get("visibility", "GLOBAL"),
+                    owner_id=doc.get("ownerId"),
+                ))
+            else:
+                # The Node API atomically marks fetched work as PROCESSING. If
+                # download fails, release that lease so the job can be retried.
+                update_status_by_id(
+                    doc_id, processing_lease_id, success=False
+                )
 
-        return saved_paths
+        return jobs
 
     except requests.RequestException as e:
         logging.error("Error fetching files from API: %s", e)
         return []
-
-def convert_docs_to_paths(files):
-    if isinstance(files, list):
-        file_paths = [
-            f"{API_BASE_URL}/api/file/v1/files/{doc['documentEncryptedId']}"
-            for doc in files if isinstance(doc, dict) and "documentEncryptedId" in doc
-        ]
-        return file_paths
-    return files
-
-def convert_paths_to_docs(file_paths):
-    """
-    Converts file URLs or local file paths back to documentEncryptedIds.
-    Args:
-        file_paths: A list of file URLs or a single file URL string.
-    Returns:
-        List of document IDs if input is list, or single document ID if input is string.
-    """
-    if isinstance(file_paths, list):
-        doc_ids = []
-        for path in file_paths:
-            if not isinstance(path, str):
-                continue
-            if "/files/" in path:
-                doc_ids.append(path.rstrip("/").split("/")[-1])
-            else:
-                # Assumes the filename without extension is the document ID
-                doc_ids.append(os.path.splitext(os.path.basename(path))[0])
-        return doc_ids
-    elif isinstance(file_paths, str):
-        if "/files/" in file_paths:
-            return file_paths.rstrip("/").split("/")[-1]
-        else:
-            # Assumes the filename without extension is the document ID
-            return os.path.splitext(os.path.basename(file_paths))[0]
-    return None
 
 def download_file(url: str, document_id: str, document_type: str) -> Optional[str]:
     """
@@ -86,7 +92,12 @@ def download_file(url: str, document_id: str, document_type: str) -> Optional[st
     Returns absolute path to saved file or None on failure.
     """
     try:
-        resp = requests.get(url, stream=True, timeout=60)
+        resp = requests.get(
+            url,
+            headers=_service_headers(),
+            stream=True,
+            timeout=60,
+        )
         resp.raise_for_status()
 
         # uploads folder relative to project root (one level up from this file)
@@ -122,33 +133,82 @@ def download_file(url: str, document_id: str, document_type: str) -> Optional[st
         logging.error("Filesystem error while saving file %s: %s", document_id, e)
         return None
 
-def update_status_via_api(file_path: str, success: bool) -> bool:
+def update_status_via_api(
+    document_id: str,
+    processing_lease_id: str,
+    success: bool,
+    vector_manifest: Optional[dict] = None,
+) -> bool:
     """
-    Reports the processing status of a file back to the main backend API.
+    Report a terminal status for one fenced ingestion attempt.
 
     Args:
-        doc_id: The ID of the file that was processed.
+        document_id: The ID of the file that was processed.
+        processing_lease_id: The unique token returned when work was claimed.
         success: True if processing was successful, False otherwise.
 
     Returns:
         True if the status was reported successfully, False otherwise.
     """
 
-    doc_id = convert_paths_to_docs(file_path)
+    return update_status_by_id(
+        document_id, processing_lease_id, success, vector_manifest
+    )
+
+
+def update_status_by_id(
+    doc_id: str,
+    processing_lease_id: str,
+    success: bool,
+    vector_manifest: Optional[dict] = None,
+) -> bool:
+    """Report ingestion completion for a document ID."""
     try:
         url = f"{API_BASE_URL}/api/file/v1/update-status"
-        payload = json.dumps({
+        status_payload = {
             "documentId": doc_id,
+            "processingLeaseId": processing_lease_id,
             "status": "COMPLETED" if success else "FAILED",
-        })
+        }
+        if success:
+            if not vector_manifest:
+                raise ValueError("vector_manifest is required for successful ingestion")
+            status_payload["vectorManifest"] = vector_manifest
+        payload = json.dumps(status_payload)
 
         headers = {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            **_service_headers(),
         }
         # response = requests.post(endpoint, json=payload, timeout=15)
-        response = requests.request("PATCH", url, headers=headers, data=payload)
+        response = requests.request(
+            "PATCH", url, headers=headers, data=payload, timeout=15
+        )
         response.raise_for_status()
         return True
     except requests.exceptions.RequestException as e:
         logging.error(f"Error updating status for {doc_id}: {e}")
         return False
+
+
+def heartbeat_lease(
+    document_id: str, processing_lease_id: str
+) -> Optional[bool]:
+    """Renew a processing lease while a long-running ingestion is active."""
+    try:
+        response = requests.patch(
+            f"{API_BASE_URL}/api/file/v1/heartbeat",
+            headers={"Content-Type": "application/json", **_service_headers()},
+            json={
+                "documentId": document_id,
+                "processingLeaseId": processing_lease_id,
+            },
+            timeout=15,
+        )
+        if response.status_code == 409:
+            return False
+        response.raise_for_status()
+        return True
+    except requests.RequestException as error:
+        logging.warning("Failed to renew ingestion lease for %s: %s", document_id, error)
+        return None

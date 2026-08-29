@@ -23,7 +23,7 @@ from langchain_community.document_loaders import (
     UnstructuredPowerPointLoader
 )
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_ollama import OllamaEmbeddings
+from .gemini_client import GeminiEmbeddings
 
 from config import Config
 
@@ -58,7 +58,7 @@ class DocumentIngestor:
     def _initialize_models(self, text_embedding_model: str, image_embedder_name: str, caption_model_name: str, audio_model_path: str):
         """Initialize all required models and processors."""
         # Text embedding model
-        self.text_embedder = OllamaEmbeddings(model=text_embedding_model)
+        self.text_embedder = GeminiEmbeddings(model=text_embedding_model)
 
         # Image models
         self.image_embedder = SentenceTransformer(image_embedder_name)
@@ -471,7 +471,7 @@ class DocumentIngestor:
 
         try:
             # Text-based embedding
-            vec = self.text_embedder.embed_query(chunk["content"])
+            vec = self.text_embedder.embed_documents([chunk["content"]])[0]
             chunk[self.text_vector_field] = vec
             chunk[f"{self.text_vector_field}_dim"] = len(vec)
         except Exception as e:
@@ -540,7 +540,7 @@ class DocumentIngestor:
         """Fallback to text embedding when image processing fails."""
         chunk = dict(chunk)
         try:
-            fallback_embedding = self.text_embedder.embed_query(chunk.get("content", ""))
+            fallback_embedding = self.text_embedder.embed_documents([chunk.get("content", "")])[0]
             chunk[self.text_vector_field] = fallback_embedding
             chunk[f"{self.text_vector_field}_dim"] = len(fallback_embedding)
         except Exception as e:
@@ -551,12 +551,12 @@ class DocumentIngestor:
         """Handle embedding errors by providing fallback embeddings."""
         import numpy as np
         try:
-            fallback_embedding = self.text_embedder.embed_query(chunk.get("content", ""))
+            fallback_embedding = self.text_embedder.embed_documents([chunk.get("content", "")])[0]
             chunk[self.text_vector_field] = fallback_embedding
             chunk[f"{self.text_vector_field}_dim"] = len(fallback_embedding)
         except Exception:
             # Ultimate fallback - zero vector
-            dim = 768  # Default dimension for nomic
+            dim = Config.GEMINI_EMBEDDING_DIMENSIONS
             chunk[self.text_vector_field] = np.random.normal(0, 0.01, dim).tolist()
             chunk[f"{self.text_vector_field}_dim"] = dim
 

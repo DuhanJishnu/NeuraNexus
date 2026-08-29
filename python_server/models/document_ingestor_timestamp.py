@@ -1,5 +1,6 @@
 import os
 import uuid
+import hashlib
 import json
 import wave
 from datetime import datetime
@@ -23,7 +24,7 @@ from langchain_community.document_loaders import (
     UnstructuredPowerPointLoader
 )
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_ollama import OllamaEmbeddings
+from .gemini_client import GeminiEmbeddings
 
 from config import Config
 
@@ -58,7 +59,7 @@ class DocumentIngestor:
     def _initialize_models(self, text_embedding_model: str, image_embedder_name: str, caption_model_name: str, audio_model_path: str):
         """Initialize all required models and processors."""
         # Text embedding model
-        self.text_embedder = OllamaEmbeddings(model=text_embedding_model)
+        self.text_embedder = GeminiEmbeddings(model=text_embedding_model)
 
         # Image models
         self.image_embedder = SentenceTransformer(image_embedder_name)
@@ -253,8 +254,12 @@ class DocumentIngestor:
             "type": "image",
             "content": caption or "",
             "metadata": {
-                "chunk_id": str(uuid.uuid4()),
+                "chunk_id": self._stable_chunk_id(
+                    file_metadata, "image_raw", caption or "", "raw"
+                ),
                 "file_id": file_metadata["file_id"],
+                "visibility": file_metadata.get("visibility", "GLOBAL"),
+                "owner_id": file_metadata.get("owner_id"),
                 "chunk_type": "image_raw",
                 "upload_timestamp": file_metadata["upload_timestamp"],
                 "source_url": f"{API_BASE_URL}/api/file/v1/files/{file_metadata['file_id']}",
@@ -302,12 +307,20 @@ class DocumentIngestor:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        return [self._create_chunk(
-            chunk_type="text",
-            content=content,
-            file_metadata=file_metadata,
-            additional_metadata={"chunk_type": "full_text"}
-        )]
+        split_content = self.splitter.split_text(content)
+        return [
+            self._create_chunk(
+                chunk_type="text",
+                content=chunk_text,
+                file_metadata=file_metadata,
+                additional_metadata={
+                    "chunk_type": "text",
+                    "chunk_index": index,
+                    "total_chunks": len(split_content),
+                },
+            )
+            for index, chunk_text in enumerate(split_content)
+        ]
 
     def _process_audio_file(self, file_path: str, file_metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Process audio file and extract transcript with timestamps."""
@@ -364,7 +377,7 @@ class DocumentIngestor:
                 file_metadata=file_metadata,
                 additional_metadata={
                     "chunk_type": "audio_transcript",
-                    "chunk_id": i,
+                    "chunk_index": i,
                     "start_time": round(chunk_start_time, 2),  # Round to 2 decimal places
                     "end_time": round(chunk_end_time, 2),
                     "duration": round(chunk_end_time - chunk_start_time, 2),
@@ -425,8 +438,16 @@ class DocumentIngestor:
         for i, chunk_text in enumerate(split_docs):
             meta = {
                 "file_id": file_metadata["file_id"],
+                "visibility": file_metadata.get("visibility", "GLOBAL"),
+                "owner_id": file_metadata.get("owner_id"),
                 "chunk_type": "text",
-                "chunk_id": str(uuid.uuid4()),
+                "chunk_id": self._stable_chunk_id(
+                    file_metadata,
+                    "text",
+                    chunk_text,
+                    f"{json.dumps(additional_metadata, sort_keys=True, default=str)}:{i}"
+                ),
+                "chunk_index": i,
                 "upload_timestamp": file_metadata["upload_timestamp"],
                 **additional_metadata
             }
@@ -441,17 +462,46 @@ class DocumentIngestor:
 
     def _create_chunk(self, chunk_type: str, content: str, file_metadata: Dict, additional_metadata: Dict) -> Dict:
         """Create a standardized chunk structure."""
+        location = additional_metadata.get(
+            "chunk_index", additional_metadata.get("chunk_id", "0")
+        )
+        normalized_metadata = dict(additional_metadata)
+        # chunk_id is reserved for the globally unique vector identifier. Older
+        # audio code used a page-local integer here, causing documents to
+        # overwrite one another in the shared vector index.
+        normalized_metadata.pop("chunk_id", None)
         return {
             "type": chunk_type,
             "content": content,
             "metadata": {
-                "chunk_id": str(uuid.uuid4()),
+                "chunk_id": self._stable_chunk_id(
+                    file_metadata, chunk_type, content, str(location)
+                ),
                 "file_id": file_metadata["file_id"],
+                "visibility": file_metadata.get("visibility", "GLOBAL"),
+                "owner_id": file_metadata.get("owner_id"),
                 "upload_timestamp": file_metadata["upload_timestamp"],
                 "source_url": f"{API_BASE_URL}/api/file/v1/files/{file_metadata['file_id']}",
-                **additional_metadata
+                **normalized_metadata
             }
         }
+
+    @staticmethod
+    def _stable_chunk_id(
+        file_metadata: Dict[str, Any],
+        chunk_type: str,
+        content: str,
+        location: str,
+    ) -> str:
+        """Create an idempotent vector ID for a document chunk."""
+        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        identity = ":".join((
+            str(file_metadata["file_id"]),
+            chunk_type,
+            location,
+            content_hash,
+        ))
+        return f"{file_metadata['file_id']}:{uuid.uuid5(uuid.NAMESPACE_URL, identity)}"
 
     def _transcribe_audio_vosk_with_timestamps(self, file_path: str) -> List[Dict[str, Any]]:
         """Transcribe audio file using Vosk speech recognition with word-level timestamps."""
@@ -596,23 +646,29 @@ class DocumentIngestor:
             for chunk in result_chunks:
                 chunk.pop("_image_obj", None)
 
-        return result_chunks
+        # The active Upstash index contains Gemini text embeddings. Raw CLIP
+        # image vectors belong in a separate multimodal index with a matching
+        # query encoder, so keep only text-indexable chunks here. Image caption
+        # and OCR chunks remain available because they receive text embeddings.
+        return [
+            chunk for chunk in result_chunks
+            if chunk.get(self.text_vector_field)
+        ]
 
     def _embed_text_chunks_parallel(self, text_chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Embed text chunks in parallel using ThreadPoolExecutor."""
+        """Embed text chunks in bounded Gemini batches to reduce API calls."""
         if not text_chunks:
             return []
-
-        # Use ThreadPoolExecutor for parallel text embedding
-        with ThreadPoolExecutor(max_workers=min(len(text_chunks), 4)) as executor:
-            futures = []
-            for chunk in text_chunks:
-                future = executor.submit(self._embed_single_text_chunk, chunk)
-                futures.append(future)
-
-            # Collect results
-            results = [future.result() for future in futures]
-
+        results = [dict(chunk) for chunk in text_chunks]
+        for start in range(0, len(results), Config.GEMINI_EMBED_BATCH_SIZE):
+            batch = results[start:start + Config.GEMINI_EMBED_BATCH_SIZE]
+            vectors = self.text_embedder.embed_documents([
+                chunk["content"] for chunk in batch
+            ])
+            for chunk, vector in zip(batch, vectors):
+                chunk.pop("vector", None)
+                chunk[self.text_vector_field] = vector
+                chunk[f"{self.text_vector_field}_dim"] = len(vector)
         return results
 
     def _embed_single_text_chunk(self, chunk: Dict[str, Any]) -> Dict[str, Any]:
@@ -622,7 +678,7 @@ class DocumentIngestor:
 
         try:
             # Text-based embedding
-            vec = self.text_embedder.embed_query(chunk["content"])
+            vec = self.text_embedder.embed_documents([chunk["content"]])[0]
             chunk[self.text_vector_field] = vec
             chunk[f"{self.text_vector_field}_dim"] = len(vec)
         except Exception as e:
@@ -691,7 +747,7 @@ class DocumentIngestor:
         """Fallback to text embedding when image processing fails."""
         chunk = dict(chunk)
         try:
-            fallback_embedding = self.text_embedder.embed_query(chunk.get("content", ""))
+            fallback_embedding = self.text_embedder.embed_documents([chunk.get("content", "")])[0]
             chunk[self.text_vector_field] = fallback_embedding
             chunk[f"{self.text_vector_field}_dim"] = len(fallback_embedding)
         except Exception as e:
@@ -702,14 +758,14 @@ class DocumentIngestor:
         """Handle embedding errors by providing fallback embeddings."""
         import numpy as np
         try:
-            fallback_embedding = self.text_embedder.embed_query(chunk.get("content", ""))
+            fallback_embedding = self.text_embedder.embed_documents([chunk.get("content", "")])[0]
             chunk[self.text_vector_field] = fallback_embedding
             chunk[f"{self.text_vector_field}_dim"] = len(fallback_embedding)
-        except Exception:
-            # Ultimate fallback - zero vector
-            dim = 768  # Default dimension for nomic
-            chunk[self.text_vector_field] = np.random.normal(0, 0.01, dim).tolist()
-            chunk[f"{self.text_vector_field}_dim"] = dim
+        except Exception as fallback_error:
+            raise RuntimeError(
+                f"Embedding failed for chunk {chunk.get('metadata', {}).get('chunk_id')}: "
+                f"{fallback_error}"
+            ) from error
 
         chunk["embed_error"] = str(error)
         return chunk

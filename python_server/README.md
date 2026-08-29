@@ -14,13 +14,13 @@ The Python RAG Engine is the core AI component of the NeuraNexus platform, provi
 ## 🧠 AI Models & Architecture
 
 ### Large Language Model
-- **Gemma3:4b**: 4 billion parameter model via Ollama
+- **Gemini API**: Configurable hosted model for grounded generation and streaming
   - Primary LLM for text generation, reasoning, and chat responses
   - Optimized for conversational AI and document-based Q&A
   - Supports streaming responses for real-time interaction
 
 ### Embedding Models
-- **nomic-embed-text:v1.5**: Advanced text embedding model
+- **gemini-embedding-001**: Retrieval-aware document/query embeddings at 768 dimensions
   - Semantic text representations for similarity search
   - High-quality embeddings for RAG retrieval
   - Optimized for multi-domain text understanding
@@ -36,10 +36,8 @@ The Python RAG Engine is the core AI component of the NeuraNexus platform, provi
   - Semantic image understanding and similarity matching
   - Enables image-text cross-modal retrieval
 
-- **YOLOv8n (Nano)**:
-  - Real-time object detection and classification
-  - Automatic tagging of objects in images
-  - Lightweight model optimized for fast inference
+- **YOLOv8n (Nano)**: Experimental object detection support; it is not enabled
+  in the active ingestion pipeline.
 
 ### Speech Recognition
 - **Vosk (vosk-model-small-en-us-0.15)**:
@@ -48,14 +46,14 @@ The Python RAG Engine is the core AI component of the NeuraNexus platform, provi
   - Lightweight model suitable for real-time transcription
 
 ### Hybrid Search Architecture
-- **BM25Okapi**: Sparse retrieval algorithm for keyword-based search
+- **Hashed Sparse Vectors**: Stateless lexical encoding suitable for distributed workers
+- **Server-side IDF**: Corpus-aware weighting maintained by Upstash
 - **Vector Similarity**: Dense retrieval using semantic embeddings
-- **Reciprocal Rank Fusion (RRF)**: Intelligent combination of search results
-- **Query Type Analysis**: Automatic detection of optimal search strategy
+- **Reciprocal Rank Fusion (RRF)**: Stable combination of independent rankings
 - **Cross-Encoder Reranking**: Advanced relevance scoring for result optimization
 
 ## 🚀 Features
-- **Hybrid Search Engine**: Advanced combination of BM25 sparse retrieval and vector similarity search
+- **Hybrid Search Engine**: Feature-flagged sparse and dense retrieval for Upstash hybrid indexes
 - **Multi-Modal AI Processing**: BLIP captioning, CLIP embeddings, YOLO detection, Vosk transcription
 - **Intelligent Text Extraction**: OCR for images, audio transcription with word-level timestamps
 - **Reciprocal Rank Fusion**: Smart algorithm for combining sparse and dense search results
@@ -70,9 +68,8 @@ The Python RAG Engine is the core AI component of the NeuraNexus platform, provi
 - **Citation System**: Automatic source attribution with detailed metadata
 
 ### 📊 **Document Intelligence & Search**
-- **Hybrid Embedding Service**: Combines BM25Okapi sparse retrieval with dense vector search
-- **Query Analysis**: Automatic query type detection for optimal search strategy selection
-- **Fusion Methods**: Reciprocal Rank Fusion (RRF), weighted combination, and auto-selection
+- **Hybrid Retrieval**: Combines IDF-weighted hashed lexical vectors with dense search
+- **Fusion Method**: Weighted Reciprocal Rank Fusion (RRF)
 - **Cross-Encoder Reranking**: Advanced relevance scoring using transformer models
 - **Timestamp-aware Processing**: Audio transcription with word-level timestamps
 - **Content Analysis**: Intelligent chunking and metadata extraction
@@ -99,7 +96,7 @@ The Python RAG Engine is the core AI component of the NeuraNexus platform, provi
 │  Ingestion       │  Scoring         │  Detection        │
 ├─────────────────────────────────────────────────────────┤
 │  Vector DB       │  LLM Service     │  Embedding        │
-│  (Upstash)       │  (Ollama)        │  Service          │
+│  (Upstash)       │  (Gemini API)    │  Service          │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -109,9 +106,9 @@ The Python RAG Engine is the core AI component of the NeuraNexus platform, provi
 - **Language**: Python 3.11+
 - **AI/ML**: LangChain, Transformers, Sentence-Transformers, Ultralytics YOLO
 - **Vector DB**: Upstash Vector Database
-- **Search**: BM25Okapi + Vector Similarity with Reciprocal Rank Fusion
-- **LLM**: Ollama Gemma3:4b for text generation and reasoning
-- **Embeddings**: nomic-embed-text:v1.5 for semantic text representations
+- **Search**: Hashed lexical vectors + dense similarity + RRF + cross-encoder reranking
+- **LLM**: Gemini API for grounded text generation and native streaming
+- **Embeddings**: gemini-embedding-001 with retrieval-specific task types
 - **Vision Models**: 
   - BLIP (Salesforce/blip-image-captioning-large) for image captioning
   - CLIP-ViT-L-14 for image embeddings (768D)
@@ -140,7 +137,7 @@ The Python RAG Engine is the core AI component of the NeuraNexus platform, provi
 # Required
 Python 3.11+
 Tesseract-OCR (for image text extraction)
-Ollama (for LLM inference)
+Gemini API key with sufficient embedding and generation quota
 
 # Optional
 CUDA drivers (for GPU acceleration)
@@ -156,15 +153,14 @@ cd NeuraNexus/python_server
 uv sync
 
 # Or using pip
-pip install -r requirements.txt
+pip install .
 
 # Set up environment variables
 cp .env.example .env
 # Edit .env with your configuration
 
 # Download required models
-ollama pull gemma3:4b
-ollama pull nomic-embed-text:v1.5
+# No local model pull is required; configure GEMINI_API_KEY below.
 
 # Start the server
 python run_server.py
@@ -175,15 +171,28 @@ python run_server.py
 # Vector Database
 UPSTASH_VECTOR_REST_URL="https://your-upstash-url"
 UPSTASH_VECTOR_REST_TOKEN="your-upstash-token"
+HYBRID_SEARCH_ENABLED=false
+SPARSE_HASH_DIMENSIONS=2147483647
+HYBRID_DENSE_WEIGHT=1.0
+HYBRID_SPARSE_WEIGHT=1.0
+INDEX_VERSION=text-v1
+LEASE_HEARTBEAT_SECONDS=120
 
 # LLM Configuration
 OLLAMA_BASE_URL="http://localhost:11434"
-EMBEDDING_MODEL="nomic-embed-text:v1.5"
-LLM_MODEL="gemma3:4b"
+GEMINI_API_KEY="store_in_a_secret_manager"
+EMBEDDING_MODEL="gemini-embedding-001"
+LLM_MODEL="gemini-2.5-flash"
+GEMINI_EMBEDDING_DIMENSIONS=768
+GEMINI_EMBED_BATCH_SIZE=32
+GEMINI_TIMEOUT_MS=60000
+GEMINI_MAX_RETRIES=5
 
 # Flask Configuration
 FLASK_ENV="development"
 SECRET_KEY="your-secret-key"
+INGESTION_SERVICE_TOKEN="shared-secret-also-configured-in-node"
+CORS_ORIGINS="http://localhost:3000,http://localhost:8000"
 
 # Processing Configuration
 MAX_WORKERS=4
@@ -191,7 +200,14 @@ CHUNK_SIZE=1000
 CHUNK_OVERLAP=200
 ```
 
+Enable hybrid search only after creating an Upstash hybrid index and reindexing
+all documents with a new `INDEX_VERSION`, for example `hybrid-hash-v1`.
+
 ## 📚 API Endpoints
+
+All endpoints except `/api/health` require
+`Authorization: Bearer <INGESTION_SERVICE_TOKEN>`. Browser clients should call
+the authenticated Node API, which forwards requests to the Python service.
 
 ### Health Check
 ```bash
@@ -454,8 +470,8 @@ ENABLE_GPU=true
 ### Model Configuration
 ```python
 # config.py
-EMBEDDING_MODEL = "nomic-embed-text:v1.5"
-LLM_MODEL = "gemma3:4b"
+EMBEDDING_MODEL = "gemini-embedding-001"
+LLM_MODEL = "gemini-2.5-flash"
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 TOP_K = 5

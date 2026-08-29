@@ -1,13 +1,14 @@
 import numpy as np
-from langchain_ollama import OllamaEmbeddings
+from .gemini_client import GeminiEmbeddings
+from config import Config
 from typing import List, Dict, Any
 import asyncio
 
 class EmbeddingService:
-    def __init__(self, model_name: str = "nomic-embed-text:v1.5", batch_size: int = 32):
-        self.embedding_model = OllamaEmbeddings(model=model_name)
+    def __init__(self, model_name: str = Config.EMBEDDING_MODEL, batch_size: int = Config.GEMINI_EMBED_BATCH_SIZE):
+        self.embedding_model = GeminiEmbeddings(model=model_name)
         self.batch_size = batch_size
-        self.embedding_dim = 768  # Default for nomic-embed-text
+        self.embedding_dim = Config.GEMINI_EMBEDDING_DIMENSIONS
     
     def generate_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings in batches to avoid memory issues"""

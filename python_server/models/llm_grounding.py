@@ -1,10 +1,11 @@
-from langchain_ollama import OllamaLLM
+from .gemini_client import GeminiLLM
+from config import Config
 from langchain.prompts import PromptTemplate
 from typing import List, Dict, Any
 
 class LLMGrounding:
-    def __init__(self, model_name: str = "gemma3:4b"):
-        self.llm = OllamaLLM(model=model_name)
+    def __init__(self, model_name: str = Config.LLM_MODEL):
+        self.llm = GeminiLLM(model=model_name)
         self.prompt_template = self._create_grounding_prompt()
     
     def _create_grounding_prompt(self) -> PromptTemplate:
@@ -54,7 +55,6 @@ class LLMGrounding:
             response = self.llm.invoke(prompt)
             # response = response.replace('\n', '\n\n')
             # Extract citations from response
-            print(response)
             citations = self._extract_citations(response, retrieved_docs)
             
             return {
@@ -71,12 +71,24 @@ class LLMGrounding:
                     for i, doc in enumerate(retrieved_docs)
                 ]
             }
+
         except Exception as e:
             return {
                 "answer": f"Error generating response: {str(e)}",
                 "citations": [],
                 "retrieved_documents": []
             }
+
+    def generate_response_stream(self, question: str, retrieved_docs: List[Dict]):
+        """Stream Gemini output without buffering the full grounded answer."""
+        prompt = self.prompt_template.format(
+            context=self.format_context_with_citations(retrieved_docs),
+            question=question,
+        )
+        yield from self.llm.stream(prompt)
+
+    def citations_for_response(self, response: str, retrieved_docs: List[Dict]):
+        return self._extract_citations(response, retrieved_docs)
     
     def _extract_citations(self, response: str, retrieved_docs: List[Dict]) -> List[Dict]:
         """Extract citation information from response"""
