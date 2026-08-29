@@ -73,6 +73,9 @@ class Config:
     SPARSE_HASH_DIMENSIONS = int(os.getenv('SPARSE_HASH_DIMENSIONS', '2147483647'))
     HYBRID_DENSE_WEIGHT = float(os.getenv('HYBRID_DENSE_WEIGHT', '1.0'))
     HYBRID_SPARSE_WEIGHT = float(os.getenv('HYBRID_SPARSE_WEIGHT', '1.0'))
+    RERANKER_ENABLED = os.getenv('RERANKER_ENABLED', 'false').lower() in {
+        '1', 'true', 'yes', 'on'
+    }
     
     
     # Vector DB

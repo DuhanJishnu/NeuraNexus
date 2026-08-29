@@ -1,17 +1,24 @@
 import Redis from 'ioredis';
+import 'dotenv/config';
 
-export const redisConnection = {
+const redisUrl = process.env.REDIS_URL;
+const parsedRedisUrl = redisUrl ? new URL(redisUrl) : null;
+
+if (parsedRedisUrl && !['redis:', 'rediss:'].includes(parsedRedisUrl.protocol)) {
+  throw new Error('REDIS_URL must use redis:// or rediss://');
+}
+
+export const redisConnection = parsedRedisUrl ? {
+  host: parsedRedisUrl.hostname,
+  port: Number(parsedRedisUrl.port || 6379),
+  username: parsedRedisUrl.username ? decodeURIComponent(parsedRedisUrl.username) : undefined,
+  password: parsedRedisUrl.password ? decodeURIComponent(parsedRedisUrl.password) : undefined,
+  tls: parsedRedisUrl.protocol === 'rediss:' ? {} : undefined,
+  maxRetriesPerRequest: null,
+} : {
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
-  // maxRetriesPerRequest: null, // Set to null for infinite retries
-  // retryDelayOnFailover: 100,
-  // enableReadyCheck: false,
-  // lazyConnect: false,
-  // connectTimeout: 60000,
-  // commandTimeout: 60000,
-  // keepAlive: 30000,
-  // family: 4, // Use IPv4
-  // enableOfflineQueue: false,
+  maxRetriesPerRequest: null,
 };
 
 export const redis = new Redis(redisConnection);

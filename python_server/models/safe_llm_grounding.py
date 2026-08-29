@@ -1,6 +1,5 @@
 from .gemini_client import GeminiLLM
 from config import Config
-from langchain.prompts import PromptTemplate
 from typing import List, Dict, Any
 from .hallucination_detector import HallucinationDetector
 import re

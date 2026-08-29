@@ -1,853 +1,208 @@
-# 🚀 Node.js API Server
+# NeuraNexus Node API
 
-> **Enterprise-grade backend API server providing authentication, file management, and conversation handling for the NeuraNexus RAG platform.**
+The Node service is the public control plane for NeuraNexus. Browsers reach it
+through the frontend's same-origin `/backend` proxy. The Python RAG service is a
+private application dependency authenticated with a shared bearer token.
 
-## 📋 Overview
+## Responsibilities
 
-The Node.js server acts as the main API gateway for the NeuraNexus platform, handling user authentication, file upload processing, conversation management, and database operations. Built with Express.js and TypeScript, it provides a robust and scalable backend infrastructure.
+- Sign-up, login, access/refresh cookies, logout, and admin authorization.
+- Conversation and exchange persistence.
+- Resumable server-sent events backed by Redis streams.
+- File validation, processing queues, protected downloads, and thumbnails.
+- PostgreSQL-backed ingestion leases with fencing and retry recovery.
+- Document visibility enforcement across files, retrieval, and citations.
+- RAG index candidate registration, evaluation gates, promotion, and rollback.
 
-## ✨ Features
+## Internal architecture
 
-### 🔐 **Authentication System**
-- **JWT-based Authentication**: Secure access and refresh token implementation
-- **Role-based Access Control**: User and Admin role management
-- **Secure Cookie Storage**: HTTP-only cookies for token storage
-- **Password Hashing**: bcrypt-based password security
-- **Token Refresh**: Automatic token rotation for enhanced security
+```mermaid
+flowchart TD
+    Routes[Express routes]
+    Auth[JWT and role middleware]
+    Services[Conversation, file, and index services]
+    Prisma[Prisma ORM]
+    Redis[Redis streams and BullMQ]
+    Workers[In-process media workers]
+    Python[Python RAG service]
 
-### 📁 **File Management**
-- **Multi-format Support**: Images, Audio, PDFs, and Microsoft Office documents
-- **Secure Upload**: Magic number validation and file type verification
-- **Background Processing**: Queue-based file processing with BullMQ
-- **File Compression**: Automatic optimization for different media types
-- **Thumbnail Generation**: Smart preview creation for various file formats
-- **Encrypted Storage**: Secure file storage with encrypted identifiers
-
-### 💬 **Conversation Management & AI Integration**
-- **Chat History**: Persistent conversation storage and retrieval
-- **Exchange System**: Message exchange tracking with metadata
-- **Python RAG Integration**: Seamless integration with hybrid search RAG pipeline
-- **AI Model Support**: Routes authenticated RAG traffic to Gemini generation and embedding services
-- **Pagination**: Efficient conversation and message pagination
-- **Real-time Updates**: Support for real-time chat functionality with streaming responses
-
-### 🗄️ **Database Operations**
-- **Prisma ORM**: Type-safe database operations
-- **PostgreSQL**: Robust relational database with full ACID compliance
-- **Migration Support**: Database schema versioning and updates
-- **Connection Pooling**: Optimized database connection management
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────┐
-│              Express.js App             │
-├─────────────────────────────────────────┤
-│  Authentication │  File Mgmt │  Chat    │
-│     Routes      │   Routes   │  Routes  │
-├─────────────────────────────────────────┤
-│  Auth Service   │ File Service│ Conv Svc│
-├─────────────────────────────────────────┤
-│         Prisma ORM (Database)           │
-├─────────────────────────────────────────┤
-│    Redis Queue  │  Background Workers   │
-└─────────────────────────────────────────┘
+    Routes --> Auth
+    Auth --> Services
+    Services --> Prisma
+    Services --> Redis
+    Redis --> Workers
+    Services --> Python
 ```
 
-## 🛠️ Tech Stack
+The current demo deployment starts the BullMQ media workers inside the API
+process. At scale, split them into independent worker processes so API replicas
+do not duplicate worker capacity and can scale separately.
 
-- **Runtime**: Node.js 18+
-- **Framework**: Express.js 5
-- **Language**: TypeScript 5
-- **Database**: PostgreSQL with Prisma ORM
-- **Queue**: Redis + BullMQ
-- **Authentication**: JWT + bcrypt
-- **File Processing**: Sharp, FFmpeg, Multer
-- **Validation**: Zod schemas
+## Requirements
 
-## 🚀 Getting Started
-  - [Running the Server](#running-the-server)
-- [API Reference](#api-reference)
-  - [Authentication Routes](#authentication-routes)
-  - [Conversation Routes](#conversation-routes)
-  - [Exchange Routes](#exchange-routes)
-  - [File Routes](#file-routes)
-
-## Project Overview
-
-The Node.js server is a core component of the NeuraNexus application, responsible for handling user authentication, managing conversations and exchanges, and processing file uploads. It is built with Express.js and uses a PostgreSQL database via Prisma for data persistence.
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js (v18 or later)
-- npm
+- Node.js 22+
 - PostgreSQL
+- Redis 6+ or a managed TLS Redis endpoint
+- The Python RAG service
+- FFmpeg and other media utilities for the complete local processing path
 
-### Installation
-
-1.  Clone the repository.
-2.  Navigate to the `node_server` directory:
-    ```bash
-    cd node_server
-    ```
-3.  Install the dependencies:
-    ```bash
-    npm install
-    ```
-4.  Set up the database by running the Prisma migrations:
-    ```bash
-    npx prisma migrate dev
-    ```
-
-### Prerequisites
-```bash
-# Required
-Node.js 18+
-PostgreSQL 14+
-Redis 6+
-
-# Optional (for media processing)
-FFmpeg
-```
-
-### Installation
-```bash
-# Clone and navigate
-git clone <repository-url>
-cd NeuraNexus/node_server
-
-# Install dependencies
-npm install
-
-# Set up environment variables
-cp .env.example .env
-# Edit .env with your configuration
-
-# Set up database
-npx prisma migrate dev
-npx prisma generate
-
-# Start development server
-npm run dev
-```
-
-### Environment Variables
-```env
-# Database
-DATABASE_URL="postgresql://user:password@localhost:5432/NeuraNexus"
-
-# JWT Secrets
-JWT_ACCESS_SECRET="your-access-secret"
-JWT_REFRESH_SECRET="your-refresh-secret"
-
-# Redis
-REDIS_URL="redis://localhost:6379"
-
-# Server
-PORT=8000
-NODE_ENV="development"
-DOMAIN_NAME="http://localhost:8000"
-
-# File Processing Limits
-IMAGE_MAX_SIZE=10
-AUDIO_MAX_SIZE=50
-DOCUMENT_MAX_SIZE=25
-DEFAULT_IMAGE_WIDTH=800
-DEFAULT_IMAGE_HEIGHT=600
-DEFAULT_IMAGE_QUALITY=80
-```
-
-## 📚 API Endpoints
-
-### Authentication (`/api/auth/v1`)
-```bash
-POST /signup      # User registration
-POST /login       # User authentication
-GET  /refresh     # Token refresh
-GET  /me          # Get current user
-```
-
-### File Management (`/api/file/v1`)
-```bash
-POST /upload           # Upload files
-GET  /job/:id          # Check processing status
-GET  /files/:id        # Serve file
-GET  /thumb/:id        # Serve thumbnail
-GET  /documents        # List documents (paginated)
-DELETE /documents/:id  # Delete document
-```
-
-### Conversations (`/api/conv/v1`)
-```bash
-GET /getrecentconv     # Get recent conversations
-```
-
-### Exchanges (`/api/exch/v1`)
-```bash
-GET  /getexch         # Get conversation exchanges
-POST /createexch      # Create new exchange
-```
-
-## 🔧 Core Services
-
-### AuthService
-```typescript
-// Generate tokens
-generateAccessToken(userId: string): string
-generateHashRefreshToken(userId: string): Promise<string>
-
-// User management
-getSafeUser(user: User): SafeUser
-```
-
-### FileService
-```typescript
-// File processing
-processUploadedFiles(files: File[], payload: any, query: any): Promise<Result[]>
-processSecureUploadedFiles(files: ValidatedFile[], payload: any, query: any): Promise<Result[]>
-
-// File operations
-serveFile(encryptedId: string): Promise<FileData>
-serveThumbnail(encryptedId: string): Promise<FileData>
-getJobStatus(jobId: string): Promise<JobStatus>
-```
-
-## 🔄 Background Processing
-
-### Queue Workers
-- **Image Processing**: Compression, resizing, format conversion
-- **Audio Processing**: Compression, format conversion  
-- **PDF Processing**: Text extraction, thumbnail generation
-- **Document Processing**: Text extraction from DOCX, PPTX files
-- **Video Processing**: Compression, thumbnail generation
-
-### Queue Configuration
-```typescript
-const queueConfig = {
-  connection: {
-    host: 'localhost',
-    port: 6379,
-  },
-  defaultJobOptions: {
-    removeOnComplete: 10,
-    removeOnFail: 5,
-    attempts: 3,
-    backoff: {
-      type: 'exponential',
-      delay: 2000,
-    },
-  },
-};
-```
-
-## 🗃️ Database Schema
-
-### Core Models
-```prisma
-model User {
-  id            String         @id @default(cuid())
-  username      String         @unique
-  email         String         @unique
-  password      String
-  role          Role           @default(USER)
-  conversations Conversation[]
-  tokens        RefreshToken[]
-}
-
-model Conversation {
-  id        String     @id @default(cuid())
-  title     String?
-  user      User       @relation(fields: [userId], references: [id])
-  userId    String
-  exchanges Exchange[]
-}
-
-model Exchange {
-  id             String       @id @default(cuid())
-  userQuery      String
-  systemResponse Json
-  conversation   Conversation @relation(fields: [conversationId], references: [id])
-}
-
-model Document {
-  id                  Int            @id @default(autoincrement())
-  documentType        Int
-  displayName         String
-  documentEncryptedId String         @unique
-  status              DocumentStatus @default(PENDING)
-  // ... additional fields
-}
-```
-
-## 🛡️ Security Features
-
-### Input Validation
-```typescript
-// Zod schemas for request validation
-const SignupSchema = z.object({
-  username: z.string().min(3).max(20),
-  email: z.string().email(),
-  password: z.string().min(6),
-});
-
-const FileUploadSchema = z.object({
-  files: z.array(z.any()).min(1),
-  // ... additional validation
-});
-```
-
-### File Security
-- **Magic Number Detection**: Verify file types by content, not extension
-- **File Size Limits**: Configurable size limits per file type
-- **Secure Storage**: Encrypted file identifiers
-- **Access Control**: Authentication required for file access
-
-### Authentication Security
-- **HTTP-only Cookies**: Prevent XSS attacks
-- **Secure Headers**: CORS, CSP, and other security headers
-- **Rate Limiting**: Prevent brute force attacks
-- **Input Sanitization**: Comprehensive request sanitization
-
-## 📊 Monitoring & Logging
-
-### Request Logging
-```typescript
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`);
-  console.log('Body:', req.body);
-  console.log('Headers:', req.headers);
-  next();
-});
-```
-
-### Error Handling
-```typescript
-// Global error middleware
-app.use(errorMiddleware);
-
-// Custom exception classes
-class BadRequestException extends Error
-class NotFoundException extends Error
-class UnprocessableEntity extends Error
-```
-
-## 🧪 Testing
-
-### Unit Tests
-```bash
-npm test                # Run all tests
-npm run test:watch      # Watch mode
-npm run test:coverage   # Coverage report
-```
-
-### API Testing
-```bash
-# Test authentication
-curl -X POST http://localhost:8000/api/auth/v1/signup \
-  -H "Content-Type: application/json" \
-  -d '{"username":"test","email":"test@example.com","password":"password123"}'
-
-# Test file upload
-curl -X POST http://localhost:8000/api/file/v1/upload \
-  -H "Authorization: Bearer <token>" \
-  -F "files=@test.pdf"
-```
-
-## 🚀 Deployment
-
-### Docker Support
-```dockerfile
-FROM node:18-alpine
-
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-
-COPY . .
-RUN npx prisma generate
-RUN npm run build
-
-CMD ["npm", "start"]
-```
-
-### Environment Setup
-```bash
-# Production environment
-NODE_ENV=production
-DATABASE_URL="postgresql://..."
-REDIS_URL="redis://..."
-
-# Security
-JWT_ACCESS_SECRET="strong-secret"
-JWT_REFRESH_SECRET="another-strong-secret"
-```
-
-## 📈 Performance Optimization
-
-- **Connection Pooling**: Database connection optimization
-- **Query Optimization**: Efficient database queries with proper indexing
-- **Caching**: Redis-based caching for frequently accessed data
-- **Background Processing**: Non-blocking file processing
-- **Compression**: Response compression with gzip
-
-## 🤝 Contributing
-
-1. Follow TypeScript best practices
-2. Use Prisma for database operations
-3. Implement proper error handling
-4. Add comprehensive logging
-5. Write unit tests for new features
-6. Update API documentation
-
-## 📝 Scripts
+## Local setup
 
 ```bash
-npm run dev          # Development server with nodemon
-npm run build        # Compile TypeScript
-npm run start        # Production server
-npm run test         # Run tests
-npm run lint         # Run ESLint
-npm run migrate      # Run Prisma migrations
+cp env.example .env
+npm ci
+npm run prisma:generate
+npm run prisma:deploy
+npm run build
+npm start
 ```
 
----
+For iterative development, compile with `npm run build:watch` and run the built
+server with the existing development script.
 
-**Built with ❤️ by Team NeuraNexus**
-  }
-  ```
-- **401 Unauthorized:** If the refresh token is missing.
-- **403 Forbidden:** If the refresh token is invalid or expired.
+## Environment variables
 
-#### `GET /me`
+Copy [`env.example`](env.example). Required variables are validated at startup.
 
-Retrieves the currently authenticated user's information.
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `PORT` | Yes | HTTP listener; Render injects this automatically |
+| `DATABASE_URL` | Yes | PostgreSQL/Prisma connection string |
+| `REDIS_URL` | Recommended | `redis://` or TLS `rediss://` URL |
+| `REDIS_HOST`, `REDIS_PORT` | Alternative | Local Redis when `REDIS_URL` is absent |
+| `PYTHON_SERVER_URL` | Yes | Python service origin without a trailing path |
+| `JWT_ACCESS_SECRET` | Yes | Access-token signing secret |
+| `JWT_REFRESH_SECRET` | Yes | Separate refresh-token signing secret |
+| `INGESTION_SERVICE_TOKEN` | Yes | Shared Node/Python service credential |
+| `CORS_ORIGINS` | Yes in production | Comma-separated browser origins |
+| `DOMAIN_NAME` | Optional | Public Node origin; Render falls back to `RENDER_EXTERNAL_URL` |
+| `QUERY_REQUEST_TIMEOUT_MS` | Yes | Maximum downstream RAG/SSE idle duration |
+| `IMAGE_MAX_SIZE` | Yes | Image upload limit in MB |
+| `AUDIO_MAX_SIZE` | Yes | Audio upload limit in MB |
+| `PDF_MAX_SIZE` | Yes | PDF upload limit in MB |
+| `DOCUMENT_MAX_SIZE` | Yes | Office/text document upload limit in MB |
+| `RAG_ACTIVE_INDEX_VERSION` | Recommended | Bootstrap index version before DB state exists |
 
-**Authentication:** Requires a valid access token in the `access_token` cookie.
+Promotion thresholds in `env.example` are optional and have bounded defaults.
 
-**Response:**
+Generate independent secrets, for example:
 
-- **200 OK:**
-  ```json
-  {
-    "id": 1,
-    "email": "test@example.com",
-    "username": "testuser"
-  }
-  ```
-
-#### `GET /getuser`
-
-Retrieves a user by their ID.
-
-**Authentication:** Requires a valid access token in the `access_token` cookie and admin privileges.
-
-**Request Params:**
-
-```json
-{
-  "email": test@example.com
-}
+```bash
+openssl rand -base64 48
 ```
 
-**Response:**
+Never use a Gemini key as the service token and never expose any of these values
+through a `NEXT_PUBLIC_*` variable.
 
-- **200 OK:**
-  ```json
-  {
-    "id": 1,
-    "email": "test@example.com",
-    "username": "testuser",
-    "createdAt":"wefr4t4",
-    "role":"Eole"
-  }
-  ```
-- **404 Not Found:** If the user is not found.
+## Authentication boundary
 
-#### `GET /makeadmin`
+Production cookies are HTTP-only, secure, strict same-site, and scoped to `/`.
+The Vercel frontend proxies API traffic through `/backend`, which keeps cookies
+first-party even though Node runs on Render. Direct cross-origin frontend calls
+are intentionally not the recommended deployment topology.
 
-Makes a user an admin.
+The frontend middleware performs an early cookie-presence redirect; every API
+endpoint still verifies the signature, expiry, database user, and role.
 
-**Authentication:** Requires a valid access token in the `access_token` cookie and admin privileges.
+## Main routes
 
-**Request Body:**
+All application routes are under `/api`.
 
-```json
-{
-  "userId": 1
-}
+| Prefix | Purpose |
+| --- | --- |
+| `/api/auth/v1` | Signup, login, refresh, logout, current user, admin promotion |
+| `/api/conv/v1` | Conversation creation, listing, and title updates |
+| `/api/exch/v1` | Exchanges and resumable response streams |
+| `/api/file/v1` | Uploads, jobs, protected files, leases, reindexing |
+| `/api/rag-index/v1` | Candidate evaluation, promotion, and rollback |
+
+Liveness is available at `GET /healthz`. `GET /` returns basic service identity.
+
+### Service-authenticated routes
+
+Python uses `Authorization: Bearer <INGESTION_SERVICE_TOKEN>` for ingestion
+claims, lease heartbeats, status updates, protected file access, and vector
+index coordination. Use a constant-time comparison and rotate the value in both
+services together.
+
+### Resumable chat streaming
+
+1. `POST /api/exch/v1/createexch` creates the exchange and response ownership
+   record.
+2. Node calls Python's streaming chat endpoint.
+3. Events are appended to a Redis stream under the response ID.
+4. `GET /api/exch/v1/stream-response/:responseId` verifies ownership and emits
+   Redis IDs as SSE IDs.
+5. Reconnecting clients send the last ID and receive only missing events.
+
+## Database lifecycle
+
+Use migrations in deployment environments:
+
+```bash
+npm run prisma:generate
+npm run prisma:deploy
 ```
 
-**Response:**
+Use `prisma migrate dev` only when authoring a new migration locally. Do not use
+`db push` for production schema changes.
 
-- **200 OK:**
-  ```json
-  {
-      id: updatedUser.id,
-      email: updatedUser.email,
-      username: updatedUser.username,
-      role: updatedUser.role,
-      message: "USER has been promoted to ADMIN"
-  }
-  ```
-- **404 Not Found:** If the user is not found.
+The Render free Blueprint runs migrations in the build command because Render's
+pre-deploy command is a paid-web-service feature. On an upgraded service, move
+`npm run prisma:deploy` into the pre-deploy command.
 
-### Conversation Routes
+## Redis and queues
 
-Base path: `/api/conv/v1`
+`REDIS_URL` supports authenticated `redis://` and TLS `rediss://` endpoints.
+BullMQ requires `maxRetriesPerRequest: null`, which is configured centrally.
+Redis currently stores:
 
-#### `GET /getrecentconv`
+- BullMQ jobs and worker leases.
+- Response ownership keys.
+- Replayable SSE streams.
+- Active RAG index cache state.
 
-Retrieves a paginated list of recent conversations for the authenticated user.
+Free Redis is acceptable for a demo. Production Redis must persist queue state
+and should have eviction, backup, monitoring, and failure policies suitable for
+the workload.
 
-**Authentication:** Requires a valid access token in the `access_token` cookie.
+## File-storage limitation
 
-**Request Body:**
+Files are currently written beneath `node_server/uploads`. Render free web
+services use an ephemeral filesystem, so those files disappear on sleep,
+restart, and deployment. PostgreSQL metadata and vectors do not recreate the
+original file.
 
-```json
-{
-  "page": 1
-}
+For production, implement an object-storage adapter and persist object keys.
+Downloads and worker inputs should stream from that store rather than local
+paths.
+
+## Render deployment
+
+The root [`render.yaml`](../render.yaml) defines this service with:
+
+- Root directory: `node_server`
+- Build: `npm ci && npm run prisma:generate && npm run prisma:deploy && npm run build`
+- Start: `npm start`
+- Health path: `/healthz`
+
+Set `DATABASE_URL`, `REDIS_URL`, `PYTHON_SERVER_URL`, and `CORS_ORIGINS` in the
+Render dashboard. The Blueprint generates the JWT and service secrets.
+
+See the root [deployment runbook](../README.md#free-deployment-vercel--render)
+for the required creation order and Vercel proxy settings.
+
+## Verification
+
+```bash
+npm ci
+npm run prisma:generate
+npx prisma validate
+npm run build
 ```
 
-**Request Body Schema:**
+After deployment:
 
-- `page` (number, required): The page number to retrieve.
-
-**Response:**
-
-- **200 OK:**
-  ```json
-  {
-    "conversations": [
-      {
-        "id": 1,
-        "title": "A new Title",
-        "userId": 1,
-        "createdAt": "2025-09-30T12:00:00.000Z",
-        "updatedAt": "2025-09-30T12:00:00.000Z"
-      }
-    ],
-    "pagination": {
-      "page": 1,
-      "totalCount": 1,
-      "totalPages": 1
-    }
-  }
-  ```
-
-### Exchange Routes
-
-Base path: `/api/exch/v1`
-
-#### `POST /createexch`
-
-Creates a new exchange within a conversation. If `convId` is not provided, a new conversation is created.
-
-**Authentication:** Requires a valid access token in the `access_token` cookie.
-
-**Request Body:**
-
-```json
-{
-  "user_query": "Hello, how are you?",
-  "convId": 1,
-  "convTitle": "My First Conversation"
-}
+```bash
+curl https://YOUR-API.onrender.com/healthz
 ```
-
-**Request Body Schema:**
-
-- `user_query` (string, required): The user's query for the exchange.
-- `convId` (number, optional): The ID of the conversation.
-- `convTitle` (string, optional): The title for a new conversation. Defaults to "A new Title".
-
-**Response:**
-
-- **200 OK:**
-  ```json
-  {
-    "exchange": {
-      "id": 1,
-      "userQuery": "Hello, how are you?",
-      "systemResponse": "I am a helpful assistant.",
-      "conversationId": 1,
-      "createdAt": "2025-09-30T12:00:00.000Z",
-      "updatedAt": "2025-09-30T12:00:00.000Z"
-    },
-    "conversation": null
-  }
-  ```
-
-#### `POST /getexch`
-
-Retrieves a paginated list of exchanges for a given conversation.
-
-**Authentication:** Requires a valid access token in the `access_token` cookie.
-
-**Request Body:**
-
-```json
-{
-  "conversationId": 1,
-  "page": 1
-}
-```
-
-**Request Body Schema:**
-
-- `conversationId` (number, required): The ID of the conversation.
-- `page` (number, required): The page number to retrieve.
-
-**Response:**
-
-- **200 OK:**
-  ```json
-  {
-    "exchanges": [
-      {
-        "id": 1,
-        "userQuery": "Hello, how are you?",
-        "systemResponse": "I am a helpful assistant.",
-        "conversationId": 1,
-        "createdAt": "2025-09-30T12:00:00.000Z",
-        "updatedAt": "2025-09-30T12:00:00.000Z"
-      }
-    ]
-  }
-  ```
-
-### File Routes
-
-Base path: `/api/file/v1`
-
-#### `POST /upload`
-
-Uploads one or more files. The files are processed in the background.
-
-**Request:** `multipart/form-data`
-
-**Form Data:**
-
-- `files`: The file(s) to upload.
-
-**Response:**
-
-- **200 OK:**
-  ```json
-  {
-    "message": "Files are being processed in background",
-    "files": [
-      {
-        "jobId": "some-job-id",
-        "fileType": "1",
-        "originalName": "my-document.pdf"
-      }
-    ]
-  }
-  ```
-
-#### `GET /job/:id`
-
-Retrieves the status of a background job.
-
-**URL Parameters:**
-
-- `id` (string, required): The ID of the job.
-
-**Query Parameters:**
-
-- `fileType` (string, optional): The type of file. Defaults to `1`.
-
-**Response:**
-
-- **200 OK:**
-  ```json
-  {
-    "status": "completed",
-    "progress": 100
-  }
-  ```
-
-#### `GET /files/:encryptedId`
-
-Serves a file by its encrypted ID.
-
-**URL Parameters:**
-
-- `encryptedId` (string, required): The encrypted ID of the file.
-
-**Response:**
-
-- **200 OK:** The file content with the appropriate `Content-Type` header.
-
-#### `GET /thumb/:encryptedId`
-
-Serves a thumbnail for a file by its encrypted ID.
-
-**URL Parameters:**
-
-- `encryptedId` (string, required): The encrypted ID of the file.
-
-**Response:**
-
-- **200 OK:** The thumbnail image with the appropriate `Content-Type` header.
-
-#### `GET /unprocessed`
-
-Retrieves a list of unprocessed files.
-
-**Response:**
-
-- **200 OK:**
-  ```json
-  [
-    {
-      "id": 1,
-      "name": "my-document.pdf",
-      "encryptedId": "some-encrypted-id"
-    }
-  ]
-  ```
-
-#### `PATCH /update-status`
-
-Updates the status of a file.
-
-**Request Body:**
-
-```json
-{
-  "encryptedId": "some-encrypted-id",
-  "status": "processed"
-}
-```
-
-**Response:**
-
-- **200 OK:**
-  ```json
-  {
-    "message": "File status updated"
-  }
-  ```
-
-#### `POST /fetchdocuments`
-
-Retrieves a paginated list of documents.
-
-**Request Body:**
-
-```json
-{
-  "page": 1
-}
-```
-
-**Response:**
-
-- **200 OK:**
-  ```json
-  {
-    "documents": [
-      {
-        "id": 1,
-        "name": "my-document.pdf",
-        "encryptedId": "some-encrypted-id"
-      }
-    ],
-    "pagination": {
-      "page": 1,
-      "totalCount": 1,
-      "totalPages": 1
-    }
-  }
-  ```
-
-#### `POST /fetchdocumentsbyName`
-
-Retrieves a paginated list of documents by name.
-
-**Request Body:**
-
-```json
-{
-  "name": "my-document.pdf",
-  "page": 1
-}
-```
-
-**Response:**
-
-- **200 OK:**
-  ```json
-  {
-    "documents": [
-      {
-        "id": 1,
-        "name": "my-document.pdf",
-        "encryptedId": "some-encrypted-id"
-      }
-    ],
-    "pagination": {
-      "page": 1,
-      "totalCount": 1,
-      "totalPages": 1
-    }
-  }
-  ```
-
-#### `POST /fetchdocumentsbyID`
-
-Retrieves a paginated list of documents by encrypter ID.
-
-**Request Body:**
-
-```json
-{
-  "id": "some-encrypted-id",
-  "page": 1
-}
-```
-
-**Response:**
-
-- **200 OK:**
-  ```json
-  {
-    "documents": [
-      {
-        "id": 1,
-        "name": "my-document.pdf",
-        "encryptedId": "some-encrypted-id"
-      }
-    ],
-    "pagination": {
-      "page": 1,
-      "totalCount": 1,
-      "totalPages": 1
-    }
-  }
-  ```
-
-#### `DELETE /delete`
-
-Deletes a document by its encrypted ID.
-
-**Request Body:**
-
-```json
-{
-  "encryptedId": "some-encrypted-id"
-}
-```
-
-**Response:**
-
-- **200 OK:**
-  ```json
-  {
-    "message": "File deleted successfully"
-  }
-  ```

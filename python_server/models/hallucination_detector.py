@@ -1,11 +1,10 @@
-from langchain.prompts import PromptTemplate
 from typing import Dict, Any, List
 
 class HallucinationDetector:
     def __init__(self):
         self.validation_prompt = self._create_validation_prompt()
     
-    def _create_validation_prompt(self) -> PromptTemplate:
+    def _create_validation_prompt(self) -> str:
         """Create prompt for fact validation against context"""
         template = """Analyze the following answer and determine if it is fully supported by the provided context. 
         Check for any information that might be made up or not directly supported by the context.
@@ -28,12 +27,9 @@ class HallucinationDetector:
         - Confidence Score: [percentage]
         - Validation Result: [PASS/CAUTION/FAIL]"""
 
-        return PromptTemplate(
-            template=template,
-            input_variables=["context", "question", "answer"]
-        )
+        return template
     
-    def create_safety_prompt(self) -> PromptTemplate:
+    def create_safety_prompt(self) -> str:
         """Create main prompt with anti-hallucination instructions"""
         template = """You are a careful AI assistant that strictly bases answers on the provided context. 
         Follow these rules:
@@ -53,7 +49,4 @@ class HallucinationDetector:
 
         Otherwise, provide a helpful answer with citations:"""
 
-        return PromptTemplate(
-            template=template,
-            input_variables=["context", "question"]
-        )
+        return template

@@ -1,6 +1,5 @@
 from .gemini_client import GeminiLLM
 from config import Config
-from langchain.prompts import PromptTemplate
 from typing import List, Dict, Any
 
 class LLMGrounding:
@@ -8,7 +7,7 @@ class LLMGrounding:
         self.llm = GeminiLLM(model=model_name)
         self.prompt_template = self._create_grounding_prompt()
     
-    def _create_grounding_prompt(self) -> PromptTemplate:
+    def _create_grounding_prompt(self) -> str:
         """SSE-safe prompt that outputs proper Markdown for Streamdown."""
         template = """You are a helpful, professional AI. Use ONLY the provided Context. 
     Create a short title derived from the question — do NOT output the literal word "Title".
@@ -25,7 +24,7 @@ class LLMGrounding:
     Question:
     {question}
     """
-        return PromptTemplate(template=template, input_variables=["context", "question"])
+        return template
         
 
     def format_context_with_citations(self, retrieved_docs: List[Dict]) -> str:

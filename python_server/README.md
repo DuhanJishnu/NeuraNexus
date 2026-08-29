@@ -1,592 +1,237 @@
-# 🤖 Python RAG Engine
+# NeuraNexus Python RAG service
 
-> **Advanced multi-modal Retrieval-Augmented Generation (RAG) engine with intelligent document processing, confidence scoring, and hallucination detection.**
+The Python service is the RAG data plane. It is called by Node with a shared
+service token and should not be exposed directly to browser application code.
 
-## 📋 Overview
+## Responsibilities
 
-The Python RAG Engine is the core AI component of the NeuraNexus platform, providing sophisticated document processing, vector-based retrieval, and intelligent response generation. Built with Flask and modern AI libraries, it offers multiple pipeline modes for different use cases and security requirements.
+- Gemini document/query embeddings and grounded text generation.
+- Dense or hybrid Upstash Vector retrieval.
+- Reciprocal-rank fusion and optional cross-encoder reranking.
+- Retrieval confidence, refusal gates, citations, and streamed answers.
+- Document ingestion with lease heartbeat and fenced completion.
+- Version-aware vector deletion and index discovery.
+- Retrieval metrics, structured request IDs, offline evaluation, and load tests.
 
-## ✨ Features
+## Query pipeline
 
-### 🧠 **Advanced RAG Pipeline**
-- **Document Processing**: PyPDF2, python-docx, LangChain loaders
+```mermaid
+flowchart TD
+    Request[Validated service request]
+    Scope[Tenant retrieval filter]
+    Embed[Gemini query embedding]
+    Retrieve[Upstash dense / hybrid retrieval]
+    Fuse[RRF fusion]
+    Rerank[Cross-encoder or lexical fallback]
+    Confidence[Confidence gate]
+    Generate[Gemini grounded generation]
+    Stream[SSE answer and citations]
 
-## 🧠 AI Models & Architecture
-
-### Large Language Model
-- **Gemini API**: Configurable hosted model for grounded generation and streaming
-  - Primary LLM for text generation, reasoning, and chat responses
-  - Optimized for conversational AI and document-based Q&A
-  - Supports streaming responses for real-time interaction
-
-### Embedding Models
-- **gemini-embedding-001**: Retrieval-aware document/query embeddings at 768 dimensions
-  - Semantic text representations for similarity search
-  - High-quality embeddings for RAG retrieval
-  - Optimized for multi-domain text understanding
-
-### Vision Models
-- **BLIP (Salesforce/blip-image-captioning-large)**:
-  - Automatic image captioning and description generation
-  - Visual understanding for multi-modal RAG
-  - Generates descriptive text from images for searchability
-
-- **CLIP-ViT-L-14**: 
-  - Vision Transformer for image embeddings (768 dimensions)
-  - Semantic image understanding and similarity matching
-  - Enables image-text cross-modal retrieval
-
-- **YOLOv8n (Nano)**: Experimental object detection support; it is not enabled
-  in the active ingestion pipeline.
-
-### Speech Recognition
-- **Vosk (vosk-model-small-en-us-0.15)**:
-  - Offline speech recognition with high accuracy
-  - Word-level timestamp extraction for precise audio processing
-  - Lightweight model suitable for real-time transcription
-
-### Hybrid Search Architecture
-- **Hashed Sparse Vectors**: Stateless lexical encoding suitable for distributed workers
-- **Server-side IDF**: Corpus-aware weighting maintained by Upstash
-- **Vector Similarity**: Dense retrieval using semantic embeddings
-- **Reciprocal Rank Fusion (RRF)**: Stable combination of independent rankings
-- **Cross-Encoder Reranking**: Advanced relevance scoring for result optimization
-
-## 🚀 Features
-- **Hybrid Search Engine**: Feature-flagged sparse and dense retrieval for Upstash hybrid indexes
-- **Multi-Modal AI Processing**: BLIP captioning, CLIP embeddings, YOLO detection, Vosk transcription
-- **Intelligent Text Extraction**: OCR for images, audio transcription with word-level timestamps
-- **Reciprocal Rank Fusion**: Smart algorithm for combining sparse and dense search results
-- **Multiple Pipeline Modes**: Standard, Enhanced, and Secure modes for different requirements
-- **Streaming Responses**: Real-time response generation with Server-Sent Events
-
-### 🛡️ **AI Safety & Quality**
-- **Confidence Scoring**: Advanced metrics to assess retrieval quality and response reliability
-- **Hallucination Detection**: Built-in mechanisms to prevent AI-generated false information
-- **Enhanced Retrieval**: Confidence-based document retrieval with quality assessment
-- **Safe LLM Grounding**: Multiple validation layers for enterprise-grade safety
-- **Citation System**: Automatic source attribution with detailed metadata
-
-### 📊 **Document Intelligence & Search**
-- **Hybrid Retrieval**: Combines IDF-weighted hashed lexical vectors with dense search
-- **Fusion Method**: Weighted Reciprocal Rank Fusion (RRF)
-- **Cross-Encoder Reranking**: Advanced relevance scoring using transformer models
-- **Timestamp-aware Processing**: Audio transcription with word-level timestamps
-- **Content Analysis**: Intelligent chunking and metadata extraction
-- **Quality Assessment**: Content sufficiency and relevance scoring
-- **Multi-format Support**: Comprehensive document type coverage
-
-### 🔧 **Enterprise Features**
-- **Conversation Memory**: Persistent chat history with LangChain integration
-- **Rate Limiting**: API throttling to prevent abuse
-- **Error Handling**: Comprehensive error management and logging
-- **Configurable Models**: Support for different LLM and embedding models
-- **Scalable Architecture**: Designed for production deployment
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Flask API Server                     │
-├─────────────────────────────────────────────────────────┤
-│   Standard RAG   │   Enhanced RAG   │   Secure RAG      │
-│    Pipeline      │    Pipeline      │    Pipeline       │
-├─────────────────────────────────────────────────────────┤
-│  Document        │  Confidence      │  Hallucination    │
-│  Ingestion       │  Scoring         │  Detection        │
-├─────────────────────────────────────────────────────────┤
-│  Vector DB       │  LLM Service     │  Embedding        │
-│  (Upstash)       │  (Gemini API)    │  Service          │
-└─────────────────────────────────────────────────────────┘
+    Request --> Scope --> Embed --> Retrieve --> Fuse --> Rerank
+    Rerank --> Confidence
+    Confidence -->|sufficient context| Generate --> Stream
+    Confidence -->|insufficient context| Stream
 ```
 
-## 🛠️ Tech Stack
+## Runtime profiles
 
-- **Framework**: Flask 2.3+
-- **Language**: Python 3.11+
-- **AI/ML**: LangChain, Transformers, Sentence-Transformers, Ultralytics YOLO
-- **Vector DB**: Upstash Vector Database
-- **Search**: Hashed lexical vectors + dense similarity + RRF + cross-encoder reranking
-- **LLM**: Gemini API for grounded text generation and native streaming
-- **Embeddings**: gemini-embedding-001 with retrieval-specific task types
-- **Vision Models**: 
-  - BLIP (Salesforce/blip-image-captioning-large) for image captioning
-  - CLIP-ViT-L-14 for image embeddings (768D)
-  - YOLOv8n for object detection
-- **Speech Recognition**: Vosk (vosk-model-small-en-us-0.15) with timestamps
-- **Audio Processing**: Vosk, noisereduce, scipy
-- **Image Processing**: Tesseract OCR, Pillow, PyTorch
-- **Document Processing**: PyPDF2, python-docx, LangChain loaders
+The dependency graph is split so the query API can fit a small demo instance.
 
-## 🚀 Getting Started
+| Profile | Install | Use |
+| --- | --- | --- |
+| Query API | `uv sync` | Gemini, Upstash retrieval, lexical reranking fallback |
+| Reranking | `uv sync --extra reranking` | Adds Sentence Transformers cross-encoder |
+| Ingestion | `uv sync --extra ingestion` | Adds document, image, audio, transformer, OCR, and Vosk dependencies |
 
-*   **Endpoint**: `GET /api/health`
-*   **Description**: Check the health of the API server.
-*   **Response**:
-    ```json
-    {
-        "status": "healthy",
-        "message": "RAG Pipeline Server is running"
-    }
-    ```
+`RERANKER_ENABLED=false` is the default. Enabling it without the `reranking` or
+`ingestion` extra safely falls back to lexical reranking, but production should
+treat a missing configured model as a deployment error.
 
-### Chat
+The Render free Blueprint installs only the query API profile because its web
+instances have 512 MB RAM. The full ingestion stack, PyTorch models, and
+cross-encoder need larger worker compute.
 
-### Prerequisites
+## Local setup
+
 ```bash
-# Required
-Python 3.11+
-Tesseract-OCR (for image text extraction)
-Gemini API key with sufficient embedding and generation quota
-
-# Optional
-CUDA drivers (for GPU acceleration)
+cp env.example .env
+uv sync --extra ingestion --extra reranking
+uv run gunicorn --bind 0.0.0.0:5000 --workers 1 --threads 4 app:app
 ```
 
-### Installation
-```bash
-# Clone and navigate
-git clone <repository-url>
-cd NeuraNexus/python_server
+For the same lightweight profile used by Render:
 
-# Install dependencies using uv (recommended)
+```bash
 uv sync
-
-# Or using pip
-pip install .
-
-# Set up environment variables
-cp .env.example .env
-# Edit .env with your configuration
-
-# Download required models
-# No local model pull is required; configure GEMINI_API_KEY below.
-
-# Start the server
-python run_server.py
+RERANKER_ENABLED=false uv run gunicorn --bind 0.0.0.0:5000 app:app
 ```
 
-### Environment Variables
+## Environment variables
+
+Copy [`env.example`](env.example).
+
+### Required
+
+| Variable | Purpose |
+| --- | --- |
+| `GEMINI_API_KEY` | Server-side Gemini credential |
+| `INGESTION_SERVICE_TOKEN` | Must match Node exactly |
+| `UPSTASH_VECTOR_REST_URL` | Default physical vector index URL |
+| `UPSTASH_VECTOR_REST_TOKEN` | Default vector index token |
+
+### Model and retrieval configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LLM_MODEL` | `gemini-2.5-flash` | Grounded generation model |
+| `EMBEDDING_MODEL` | `gemini-embedding-001` | Query/document embedding model |
+| `GEMINI_EMBEDDING_DIMENSIONS` | `768` | Must match the vector index |
+| `GEMINI_EMBED_BATCH_SIZE` | `32` | Bounded embedding batch size |
+| `GEMINI_TIMEOUT_MS` | `60000` | Gemini client timeout |
+| `GEMINI_MAX_RETRIES` | `5` | Retry budget |
+| `RERANKER_ENABLED` | `false` | Load the optional local cross-encoder |
+| `INDEX_VERSION` | `text-v1` | Default logical/physical index version |
+| `HYBRID_SEARCH_ENABLED` | `false` | Enable dense+sparse queries |
+| `SPARSE_HASH_DIMENSIONS` | `2147483647` | Stateless sparse hash space |
+| `HYBRID_DENSE_WEIGHT` | `1.0` | Dense contribution to RRF |
+| `HYBRID_SPARSE_WEIGHT` | `1.0` | Sparse contribution to RRF |
+
+`VECTOR_INDEXES_JSON` can map multiple release versions to physical indexes:
+
+```json
+{
+  "text-v1": {
+    "url": "https://...",
+    "token": "secret",
+    "hybrid": false
+  },
+  "hybrid-v2": {
+    "url": "https://...",
+    "token": "secret",
+    "hybrid": true
+  }
+}
+```
+
+Treat the entire JSON value as a secret. Gemini vectors are not compatible with
+vectors produced by Ollama/Nomic even when the dimension count matches; create
+a new physical index and reingest before promotion.
+
+## Service authentication
+
+Every route except `GET /api/health` requires:
+
+```http
+Authorization: Bearer <INGESTION_SERVICE_TOKEN>
+```
+
+`/api/metrics` is intentionally service-authenticated because labels and
+operational counts should not be public. The service accepts and returns
+`X-Request-Id`; retrieval logs store a short question hash instead of raw user
+text.
+
+## API
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/health` | Public liveness check |
+| `POST /api/chat` | Non-streaming grounded response |
+| `POST /api/chat/stream` | SSE grounded response |
+| `GET /api/indexes` | Configured index versions without credentials |
+| `DELETE /api/vectors/documents/:id` | Delete a document's vectors across configured indexes |
+| `GET /api/metrics` | Prometheus-format retrieval counters and latency |
+
+Node supplies `retrieval_scope` and the active `index_version`. Browser clients
+must not construct those authorization fields directly.
+
+## Ingestion worker
+
+The ingestion worker is a separate long-running process:
+
+```bash
+uv sync --extra ingestion
+uv run python ingestion_worker.py
+```
+
+It needs these additional values:
+
 ```env
-# Vector Database
-UPSTASH_VECTOR_REST_URL="https://your-upstash-url"
-UPSTASH_VECTOR_REST_TOKEN="your-upstash-token"
-HYBRID_SEARCH_ENABLED=false
-SPARSE_HASH_DIMENSIONS=2147483647
-HYBRID_DENSE_WEIGHT=1.0
-HYBRID_SPARSE_WEIGHT=1.0
-INDEX_VERSION=text-v1
+API_URL=http://localhost:8000
 LEASE_HEARTBEAT_SECONDS=120
-
-# LLM Configuration
-OLLAMA_BASE_URL="http://localhost:11434"
-GEMINI_API_KEY="store_in_a_secret_manager"
-EMBEDDING_MODEL="gemini-embedding-001"
-LLM_MODEL="gemini-2.5-flash"
-GEMINI_EMBEDDING_DIMENSIONS=768
-GEMINI_EMBED_BATCH_SIZE=32
-GEMINI_TIMEOUT_MS=60000
-GEMINI_MAX_RETRIES=5
-
-# Flask Configuration
-FLASK_ENV="development"
-SECRET_KEY="your-secret-key"
-INGESTION_SERVICE_TOKEN="shared-secret-also-configured-in-node"
-CORS_ORIGINS="http://localhost:3000,http://localhost:8000"
-
-# Processing Configuration
-MAX_WORKERS=4
-CHUNK_SIZE=1000
-CHUNK_OVERLAP=200
 ```
 
-Enable hybrid search only after creating an Upstash hybrid index and reindexing
-all documents with a new `INDEX_VERSION`, for example `hybrid-hash-v1`.
+The worker repeatedly:
 
-## 📚 API Endpoints
+1. Claims a bounded document lease from Node.
+2. Downloads the protected source file with service authentication.
+3. Extracts/chunks content and creates Gemini document embeddings.
+4. Upserts deterministic vector IDs into the requested physical index.
+5. Heartbeats during long work and completes using the same lease ID.
 
-All endpoints except `/api/health` require
-`Authorization: Bearer <INGESTION_SERVICE_TOKEN>`. Browser clients should call
-the authenticated Node API, which forwards requests to the Python service.
+Never run more workers than the external API quotas and database lease settings
+can support. On Render, background workers are not available on the free plan;
+for a free demo, run this process locally as described in the root README.
 
-### Health Check
+## Retrieval evaluation
+
+Run offline relevance evaluation against a running service:
+
 ```bash
-GET /api/health
-```
-**Response:**
-```json
-{
-    "status": "healthy",
-    "message": "RAG Pipeline Server is running"
-}
+INGESTION_SERVICE_TOKEN=... \
+python -m evaluation.retrieval_eval evaluation/sample_dataset.jsonl \
+  --base-url http://localhost:5000 \
+  --index-version gemini-embed-001-768-v1
 ```
 
-### Chat Interface
-**Endpoint**: `POST /api/chat`
+Compare a candidate against a baseline:
 
-Ask questions and get AI-powered answers from processed documents.
-
-**Request Body**:
-
-```json
-{
-    "question": "What is the main topic of the document?",
-    "conv_id": "<conversation-id>",
-    "secure_mode": false,
-    "stream": false
-}
-```
-
-*   `question` (string, required): The question you want to ask.
-*   `conv_id` (string, required): A unique identifier for the conversation.
-*   `secure_mode` (boolean, optional, default: `false`): Set to `true` to use the secure pipeline with enhanced safety features.
-*   `stream` (boolean, optional, default: `false`): Set to `true` to receive a streaming response. When `true`, the response will be sent using Server-Sent Events (SSE).
-
-**Standard Response (`stream: false`)**:
-
-```json
-{
-    "success": true,
-    "question": "What is the main topic of the document?",
-    "answer": "The main topic of the document is...",
-    "citations": [...]
-}
-```
-
-**Streaming Response (`stream: true`)**:
-
-The response will be a stream of Server-Sent Events (SSE). Each event is a JSON object with a `type` and `data` field.
-
-*   `type: 'retrieval_metrics'`: Contains information about the retrieved documents.
-*   `type: 'answer_chunk'`: A chunk of the answer.
-*   `type: 'final'`: The final event, containing citations and retrieved documents.
-*   `type: 'error'`: If an error occurs.
-
-Example SSE stream:
-
-```
-data: {"type": "retrieval_metrics", "data": {"metrics": ..., "documents_retrieved": 5, "should_proceed": true}}
-
-data: {"type": "answer_chunk", "data": "The main topic"}
-
-data: {"type": "answer_chunk", "data": " of the document is..."}
-
-data: {"type": "final", "data": {"success": true, "question": "...", "citations": [...], "retrieved_documents": [...]}}
-```
-
-### Streaming Chat
-
-*   **Endpoint**: `POST /api/chat/stream`
-*   **Description**: A dedicated endpoint for streaming chat responses using Server-Sent Events (SSE).
-
-**Request Body**:
-
-```json
-{
-    "question": "What is the main topic of the document?",
-    "conv_id": "<conversation-id>",
-    "secure_mode": false
-}
-```
-
-*   `question` (string, required): The question you want to ask.
-*   `conv_id` (string, required): A unique identifier for the conversation.
-*   `secure_mode` (boolean, optional, default: `false`): Set to `true` to use the secure pipeline with enhanced safety features.
-
-### Document Search
-**Endpoint**: `POST /api/search`
-
-Search the vector database directly for relevant document chunks.
-
-**Request Body**:
-```json
-{
-    "query": "machine learning concepts",
-    "k": 5,
-    "analyze": false
-}
-```
-
-**Response**:
-```json
-{
-    "success": true,
-    "query": "machine learning concepts",
-    "results": [
-        {
-            "content": "Machine learning is a subset of artificial intelligence...",
-            "metadata": {
-                "file_id": "doc123",
-                "page_number": 1,
-                "chunk_type": "text"
-            },
-            "similarity_score": 0.89
-        }
-    ]
-}
-```
-
-## 🔧 Core Components
-
-### Document Ingestion Pipeline
-The system supports comprehensive document processing:
-
-```python
-class DocumentIngestor:
-    def ingest_document(self, file_path: str) -> List[Dict]:
-        """Process and ingest various document types"""
-        # Supports PDF, DOCX, PPTX, TXT, images, audio
-        
-    def _process_pdf_file(self, file_path: str) -> List[Dict]:
-        """Extract text from PDF with metadata"""
-        
-    def _process_audio_file(self, file_path: str) -> List[Dict]:
-        """Transcribe audio with timestamps"""
-        
-    def _process_image_file(self, file_path: str) -> List[Dict]:
-        """Extract text from images using OCR"""
-```
-
-### RAG Pipeline Modes
-
-**Standard Pipeline**: Basic retrieval and generation
-```python
-retriever = Retriever(vector_db, embedding_service)
-llm_grounding = LLMGrounding()
-```
-
-**Enhanced Pipeline**: Confidence scoring and quality assessment
-```python
-enhanced_retriever = EnhancedRetriever(vector_db, embedding_service)
-confidence_scorer = ConfidenceScorer()
-```
-
-**Secure Pipeline**: Multiple validation layers
-```python
-safe_llm = SafeLLMGrounding()
-hallucination_detector = HallucinationDetector()
-```
-
-### Confidence Scoring System
-Advanced metrics for retrieval quality:
-
-```python
-class ConfidenceScorer:
-    def calculate_retrieval_confidence(self, query: str, docs: List[Dict]) -> Dict:
-        """Calculate multiple confidence metrics"""
-        return {
-            "overall_confidence": 0.85,
-            "max_similarity": 0.92,
-            "mean_similarity": 0.78,
-            "coverage_score": 0.83,
-            "sufficient_content": True
-        }
-```
-
-## 🛡️ Safety Features
-
-### Hallucination Detection
-Built-in mechanisms to prevent false information:
-
-```python
-class HallucinationDetector:
-    def create_safety_prompt(self) -> PromptTemplate:
-        """Create prompt with anti-hallucination instructions"""
-        
-    def validate_response(self, response: str, context: str) -> Dict:
-        """Validate response against context"""
-```
-
-### Content Validation
-Multiple validation layers for enterprise use:
-
-- **Citation Verification**: Ensure all claims are backed by sources
-- **Context Relevance**: Verify response relevance to retrieved documents
-- **Confidence Thresholds**: Configurable quality gates
-- **Safety Checks**: Multiple validation passes
-
-## 🧪 Testing
-
-### Unit Tests
 ```bash
-# Run all tests
-python -m pytest tests/
-
-# Run with coverage
-python -m pytest --cov=models tests/
-
-# Run specific test
-python -m pytest tests/test_retriever.py
+INGESTION_SERVICE_TOKEN=... \
+python -m evaluation.retrieval_eval evaluation/sample_dataset.jsonl \
+  --base-url http://localhost:5000 \
+  --index-version hybrid-v2 \
+  --baseline-version gemini-embed-001-768-v1
 ```
 
-### API Testing
+Run the concurrent error/latency gate:
+
 ```bash
-# Test the complete pipeline
-python api_test.py
-
-# Manual API testing
-curl -X POST http://localhost:5000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What is machine learning?", "conv_id": "test123"}'
+INGESTION_SERVICE_TOKEN=... \
+python -m evaluation.retrieval_load_test evaluation/sample_dataset.jsonl \
+  --base-url http://localhost:5000 \
+  --concurrency 8 --requests 100
 ```
 
-## 🚀 Deployment
+The evaluation report includes hit rate, MRR, recall, precision, NDCG, error
+rate, retrieval method, and latency percentiles. Submit the generated promotion
+metrics to Node only after every candidate document has a current index
+manifest.
 
-### Docker Support
-```dockerfile
-FROM python:3.11-slim
+## Render deployment
 
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+The root [`render.yaml`](../render.yaml) configures:
 
-COPY . .
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
+- Root directory: `python_server`
+- Build: `uv sync --frozen --no-dev`
+- Start: one Gunicorn worker with four threads
+- Health path: `/api/health`
+- `RERANKER_ENABLED=false`
+
+One worker avoids loading multiple copies of the pipeline inside a 512 MB free
+instance. Threads allow concurrent I/O while Gemini and Upstash requests are in
+flight. Upgrade memory before enabling the local cross-encoder.
+
+See the root [deployment runbook](../README.md#free-deployment-vercel--render).
+
+## Verification
+
+```bash
+uv sync
+uv run python -m unittest discover -s tests -v
 ```
 
-### Production Configuration
-```env
-# Production settings
-FLASK_ENV=production
-GUNICORN_WORKERS=4
-GUNICORN_TIMEOUT=120
+Health check after deployment:
 
-# Model optimization
-BATCH_SIZE=8
-MAX_WORKERS=6
-ENABLE_GPU=true
+```bash
+curl https://YOUR-RAG.onrender.com/api/health
 ```
-
-## 📈 Performance Optimization
-
-- **Batch Processing**: Efficient document ingestion
-- **Caching**: Vector and response caching
-- **Parallel Processing**: Multi-threaded document processing
-- **GPU Acceleration**: CUDA support for embeddings and LLM inference
-- **Memory Management**: Efficient memory usage for large documents
-
-## 🔧 Configuration
-
-### Model Configuration
-```python
-# config.py
-EMBEDDING_MODEL = "gemini-embedding-001"
-LLM_MODEL = "gemini-2.5-flash"
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
-TOP_K = 5
-SIMILARITY_THRESHOLD = 0.7
-```
-
-### Vector Database Settings
-```python
-# Upstash Vector configuration
-VECTOR_DIMENSION = 768
-SIMILARITY_FUNCTION = "cosine"
-INDEX_TYPE = "flat"
-```
-
-## 🤝 Contributing
-
-1. Follow Python PEP 8 style guidelines
-2. Add type hints to all functions
-3. Include comprehensive docstrings
-4. Write unit tests for new features
-5. Update configuration documentation
-6. Test with multiple document types
-
----
-
-**Built with ❤️ by Team NeuraNexus**
-{
-    "success": true,
-    "query": "machine learning",
-    "results": [
-        {
-            "content": "...",
-            "metadata": {...},
-            "similarity_score": 0.85,
-            "relevance_score": 0.9
-        }
-    ]
-}
-```
-
-**Response (when `analyze` is `true`)**:
-
-Returns a detailed analysis of the query, including confidence scores and whether the pipeline should proceed with generating an answer.
-
-```json
-{
-    "success": true,
-    "query": "machine learning",
-    "analysis": {...},
-    "should_proceed": true,
-    "message": "Proceeding with LLM generation.",
-    "documents_retrieved": 5
-}
-```
-
-## Conversation Management
-
-The application now supports conversation management, allowing you to maintain a history for each conversation and summarize it when it's over.
-
-### Summarize Conversation
-
-*   **Endpoint**: `POST /api/summarize`
-*   **Description**: Summarize a conversation.
-
-**Request Body**:
-
-```json
-{
-    "conv_id": "<conversation-id>"
-}
-```
-
-*   `conv_id` (string, required): The ID of the conversation to summarize.
-
-**Response**:
-
-```json
-{
-    "success": true,
-    "summary": "This is a summary of the conversation."
-}
-```
-
-### Load Conversation Summary
-
-*   **Endpoint**: `POST /api/load_summary`
-*   **Description**: Load a summary into a new conversation.
-
-**Request Body**:
-
-```json
-{
-    "conv_id": "<new-conversation-id>",
-    "summary": "This is a summary of a previous conversation."
-}
-```
-
-*   `conv_id` (string, required): The ID of the new conversation.
-*   `summary` (string, required): The summary to load.
-
-**Response**:
-
-```json
-{
-    "success": true
-}
-```
-
-## Ingestion Pipeline
-
-The ingestion pipeline is handled by the `ingestion_worker.py` script. This script runs as a long-running process and does the following:
-
-1.  **Polls for new files**: The worker periodically calls an external API (defined by the `API_URL` environment variable) to get a list of new files to process.
-2.  **Processes files in parallel**: The worker uses a thread pool to process multiple files concurrently, which significantly speeds up the ingestion process.
-3.  **Extracts content**: It extracts text and images from various document formats.
-4.  **Generates embeddings**: It uses a sentence transformer model to generate vector embeddings for the document chunks.
-5.  **Stores in Vector DB**: The embeddings are stored in **Upstash Vector**, a serverless vector database.
-6.  **Reports status**: After processing each file, the worker reports the status (success or failure) back to the external API.

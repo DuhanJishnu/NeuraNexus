@@ -12,6 +12,12 @@ import { User } from "../types/auth";
 import { NotFoundException } from "../exceptions/not-found";
 
 const prismaClient = prisma; 
+const authCookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "strict" as const,
+  path: "/",
+};
 
 export const signup = async (
   req: Request,
@@ -19,22 +25,18 @@ export const signup = async (
   next: NextFunction
 ) => {
    const parsedBody = SignupSchema.parse(req.body);
-   console.log(1);
     const { email, password, fullname } = parsedBody;
-    console.log(2);
     let user = await prismaClient.user.findFirst({
       where: {
         email,
       },
     });
-    console.log(3);
     if (user) {
        throw new BadRequestException(
           "User already exists",
           ErrorCode.USER_ALREADY_EXISTS
         );
     }
-    console.log(4);
     user = await prismaClient.user.create({
       data: {
         email,
@@ -42,26 +44,19 @@ export const signup = async (
         username: fullname,
       },
     });
-    console.log(5)
     const access_token = generateAccessToken(user.id);
 
     const refresh_token = await generateHashRefreshToken(user.id);
 
-console.log(6);
     res.cookie("access_token", access_token, {
-      httpOnly: true,       // not accessible via JS
-      //secure: true,         // only over HTTPS (set false in dev)
-      sameSite: "strict",   // CSRF protection
+      ...authCookieOptions,
       maxAge: 15 * 60 * 1000,
     });
 
     res.cookie("refresh_token", refresh_token, {
-      httpOnly: true,
-      //secure: true,
-      sameSite: "strict",
+      ...authCookieOptions,
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
-    console.log(7);
     res.json({
       id: user.id,
       email: user.email,
@@ -72,35 +67,25 @@ console.log(6);
 
 export const login = async (req: Request, res: Response, next: NextFunction) => {
   LoginSchema.parse(req.body);
-  console.log(1);
     const { email, password } = req.body;
     let user = await prismaClient.user.findUnique({ where: { email } });
 
-    console.log(2);
     if (!user) {throw new NotFoundException("User not found",ErrorCode.USER_NOT_FOUND)}
     if (!compareSync(password, user.password)) {
           throw new BadRequestException(
           "Incorrect Credentials",
           ErrorCode.INCORRECT_CREDENTIALS);
     }
-    console.log(3, 'in login');
     const access_token = generateAccessToken(user.id);
     const refresh_token = await generateHashRefreshToken(user.id);
-    console.log(4);
-
     res.cookie("access_token", access_token, {
-      httpOnly: true,       // not accessible via JS
-         // only over HTTPS (set false in dev)
-      sameSite: "strict",   // CSRF protection
+      ...authCookieOptions,
       maxAge: 15 * 60 * 1000,
     });
     res.cookie("refresh_token", refresh_token, {
-      httpOnly: true,
-
-      sameSite: "strict",
+      ...authCookieOptions,
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
-    console.log(5);
     res.json({
       id: user.id,
       email: user.email,
@@ -164,14 +149,12 @@ export const refresh = async (
     });
 
     res.cookie("access_token", access_token, {
-      httpOnly: true,
-      sameSite: "strict",
+      ...authCookieOptions,
       maxAge: 15 * 60 * 1000, // 15 minutes
     });
 
     res.cookie("refresh_token", new_refresh_token, {
-      httpOnly: true,
-      sameSite: "strict",
+      ...authCookieOptions,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
@@ -204,12 +187,10 @@ export const refresh = async (
 };
 
 export const me = async (req: Request, res: Response) => {
-  console.log(1);
   if (!req.user) {
     return res.status(401).json({ message: "User not found" });
   }
   const safeUser = getSafeUser(req.user as any);
-  console.log(2);
   res.json(safeUser);
 };
 
@@ -217,16 +198,8 @@ export const logout = async (req: Request, res: Response) =>{
   await prismaClient.refreshToken.delete({
     where:{tokenHash: req.cookies.refresh_token}
   })
-   res.clearCookie("access_token", {
-    httpOnly: true,
-    //secure: true,
-    sameSite: "strict"
-  });
-   res.clearCookie("refresh_token", {
-    httpOnly: true,
-    //secure: true,
-    sameSite: "strict"
-  });
+   res.clearCookie("access_token", authCookieOptions);
+   res.clearCookie("refresh_token", authCookieOptions);
   res.json({ message: "Logged out successfully" });
 }
 

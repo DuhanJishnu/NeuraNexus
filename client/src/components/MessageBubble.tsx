@@ -10,7 +10,7 @@ import {
   ArrowPathIcon,
 } from "@heroicons/react/24/outline";
 import { CitationFileInfo } from '@/types/exchange';
-import { FILE_ORIGIN } from '@/config/publicEnv';
+import { FILE_BASE_URL } from '@/config/publicEnv';
 
 const TypingIndicator = () => (
     <div className="flex items-center space-x-1.5 py-2">
@@ -159,7 +159,7 @@ export default function MessageBubble({
                         />
                       ) : (
                         <Image
-                          src={`${FILE_ORIGIN}/api/file/v1/thumb/${encodeURIComponent(file)}`}
+                          src={`${FILE_BASE_URL}/api/file/v1/thumb/${encodeURIComponent(file)}`}
                           alt="document thumbnail"
                           height={40}
                           width={40}
@@ -170,7 +170,7 @@ export default function MessageBubble({
                       )}
 
                     <a
-                      href={`${FILE_ORIGIN}/api/file/v1/files/${encodeURIComponent(file)}`}
+                      href={`${FILE_BASE_URL}/api/file/v1/files/${encodeURIComponent(file)}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-blue-700 dark:text-blue-300 hover:underline font-medium transition-colors duration-150"

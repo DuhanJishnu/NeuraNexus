@@ -1,15 +1,18 @@
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from sentence_transformers import CrossEncoder
+from config import Config
 
 
 class CrossEncoderReranker:
     """Rerank dense candidates with a query-document cross encoder."""
 
     def __init__(self, model_name: str = 'cross-encoder/ms-marco-MiniLM-L-6-v2'):
-        self.model: Optional[CrossEncoder] = None
+        self.model: Optional[Any] = None
+        if not Config.RERANKER_ENABLED:
+            return
         try:
+            from sentence_transformers import CrossEncoder
             self.model = CrossEncoder(model_name)
         except Exception as error:
             print(f"Warning: cross-encoder unavailable, using lexical fallback: {error}")

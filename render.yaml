@@ -1,0 +1,85 @@
+services:
+  - type: web
+    name: neuranexus-rag
+    runtime: python
+    plan: free
+    rootDir: python_server
+    buildCommand: uv sync --frozen --no-dev
+    startCommand: .venv/bin/gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 180 app:app
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: UPSTASH_VECTOR_REST_URL
+        sync: false
+      - key: UPSTASH_VECTOR_REST_TOKEN
+        sync: false
+      - key: INGESTION_SERVICE_TOKEN
+        fromService:
+          type: web
+          name: neuranexus-api
+          envVarKey: INGESTION_SERVICE_TOKEN
+      - key: LLM_MODEL
+        value: gemini-2.5-flash
+      - key: EMBEDDING_MODEL
+        value: gemini-embedding-001
+      - key: GEMINI_EMBEDDING_DIMENSIONS
+        value: "768"
+      - key: INDEX_VERSION
+        value: gemini-embed-001-768-v1
+      - key: HYBRID_SEARCH_ENABLED
+        value: "false"
+      - key: RERANKER_ENABLED
+        value: "false"
+      - key: CORS_ORIGINS
+        value: https://example.invalid
+
+  - type: web
+    name: neuranexus-api
+    runtime: node
+    plan: free
+    rootDir: node_server
+    buildCommand: npm ci && npm run prisma:generate && npm run prisma:deploy && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: PYTHON_SERVER_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: INGESTION_SERVICE_TOKEN
+        generateValue: true
+      - key: IMAGE_MAX_SIZE
+        value: "10"
+      - key: AUDIO_MAX_SIZE
+        value: "50"
+      - key: PDF_MAX_SIZE
+        value: "50"
+      - key: DOCUMENT_MAX_SIZE
+        value: "25"
+      - key: DEFAULT_IMAGE_WIDTH
+        value: "800"
+      - key: DEFAULT_IMAGE_HEIGHT
+        value: "600"
+      - key: DEFAULT_IMAGE_QUALITY
+        value: "80"
+      - key: QUERY_REQUEST_TIMEOUT_MS
+        value: "120000"
+      - key: RAG_ACTIVE_INDEX_VERSION
+        value: gemini-embed-001-768-v1

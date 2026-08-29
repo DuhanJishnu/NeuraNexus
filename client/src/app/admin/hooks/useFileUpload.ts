@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { uploadFile, fetchDocuments, fetchDocumentsByName, deleteDocument } from '@/service/file';
 import { isAxiosError } from 'axios';
-import { FILE_ORIGIN } from '@/config/publicEnv';
+import { FILE_BASE_URL } from '@/config/publicEnv';
 export type UploadedFile = {
   name: string;
   link: string;
@@ -297,8 +297,8 @@ const [deleteLoading, setDeleteLoading] = useState<number | null>(null);
        const { pageNo, totalPages, totalCount, documents } = res.result as DocumentPage;
         const mappedFiles: UploadedFile[] = documents.map(doc => ({
       name: doc.displayName,
-      link: `${FILE_ORIGIN}/api/file/v1/files/${encodeURIComponent(doc.documentEncryptedId)}`,
-      thumb: `${FILE_ORIGIN}/api/file/v1/thumb/${encodeURIComponent(doc.documentEncryptedId)}`,
+      link: `${FILE_BASE_URL}/api/file/v1/files/${encodeURIComponent(doc.documentEncryptedId)}`,
+      thumb: `${FILE_BASE_URL}/api/file/v1/thumb/${encodeURIComponent(doc.documentEncryptedId)}`,
       fileType: doc.documentType,
       id: doc.id,
       documentEncryptedId: doc.documentEncryptedId
@@ -345,8 +345,8 @@ const [deleteLoading, setDeleteLoading] = useState<number | null>(null);
     const { pageNo, totalPages, totalCount, documents } = res as DocumentPage;
     const mappedFiles: UploadedFile[] = documents.map(doc => ({
       name: doc.displayName,
-      link: `${FILE_ORIGIN}/api/file/v1/files/${encodeURIComponent(doc.documentEncryptedId)}`,
-      thumb: `${FILE_ORIGIN}/api/file/v1/thumb/${encodeURIComponent(doc.documentEncryptedId)}`,
+      link: `${FILE_BASE_URL}/api/file/v1/files/${encodeURIComponent(doc.documentEncryptedId)}`,
+      thumb: `${FILE_BASE_URL}/api/file/v1/thumb/${encodeURIComponent(doc.documentEncryptedId)}`,
       fileType: doc.documentType,
        id: doc.id,
       documentEncryptedId: doc.documentEncryptedId

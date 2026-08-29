@@ -309,8 +309,9 @@ export class FileService {
     const sanitizedFileName = `${baseName}${ext}`;
     const fileName = `${Date.now()}-${sanitizedFileName}`;
 
-    const finalLink = `${process.env.DOMAIN_NAME}/api/file/v1/files/${encryptedId}`;
-    const finalThumbLink = `${process.env.DOMAIN_NAME}/api/file/v1/thumb/${encryptedId}`;
+    const publicOrigin = process.env.DOMAIN_NAME || process.env.RENDER_EXTERNAL_URL || '';
+    const finalLink = `${publicOrigin}/api/file/v1/files/${encryptedId}`;
+    const finalThumbLink = `${publicOrigin}/api/file/v1/thumb/${encryptedId}`;
 
     let job: Job | null = null;
 
@@ -415,8 +416,9 @@ export class FileService {
     const sanitizedFileName = `${baseName}.${detectedExtension.replace('.', '')}`;
     const fileName = `${Date.now()}-${sanitizedFileName}`;
 
-    const finalLink = `${process.env.DOMAIN_NAME}/api/file/v1/files/${encryptedId}`;
-    const finalThumbLink = `${process.env.DOMAIN_NAME}/api/file/v1/thumb/${encryptedId}`;
+    const publicOrigin = process.env.DOMAIN_NAME || process.env.RENDER_EXTERNAL_URL || '';
+    const finalLink = `${publicOrigin}/api/file/v1/files/${encryptedId}`;
+    const finalThumbLink = `${publicOrigin}/api/file/v1/thumb/${encryptedId}`;
 
     let job: Job | null = null;
 

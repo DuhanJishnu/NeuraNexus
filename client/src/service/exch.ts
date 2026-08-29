@@ -1,4 +1,4 @@
-import { API_ORIGIN } from '@/config/publicEnv';
+import { API_BASE_URL } from '@/config/publicEnv';
 import { StreamFinalData, SystemResponse } from '@/types/exchange';
 import api from './api';
 
@@ -103,8 +103,8 @@ export const streamResponse = (
     if (settled || manuallyClosed) return;
     closeSource();
     const streamUrl = new URL(
-      `/api/exch/v1/stream-response/${encodeURIComponent(responseId)}`,
-      API_ORIGIN,
+      `${API_BASE_URL}/api/exch/v1/stream-response/${encodeURIComponent(responseId)}`,
+      window.location.origin,
     );
     streamUrl.searchParams.set('lastEventId', lastEventId);
     eventSource = new EventSource(

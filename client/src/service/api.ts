@@ -1,17 +1,17 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
-import { API_ORIGIN } from '@/config/publicEnv';
+import { API_BASE_URL } from '@/config/publicEnv';
 
 
 type RetryableRequest = InternalAxiosRequestConfig & { _retry?: boolean };
 
 const refreshApi = axios.create({
-  baseURL: `${API_ORIGIN}/api`,
+  baseURL: `${API_BASE_URL}/api`,
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
 });
 
 export const api = axios.create({
-  baseURL: `${API_ORIGIN}/api`,
+  baseURL: `${API_BASE_URL}/api`,
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
 });

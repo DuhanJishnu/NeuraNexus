@@ -12,6 +12,7 @@ export function middleware(req: NextRequest) {
     pathname === '/login' ||
     pathname === '/signup' ||
     pathname.startsWith('/_next/') ||
+    pathname.startsWith('/backend/') ||
     pathname.startsWith('/api/') || // Exclude API routes from redirection
     pathname.includes('.') // Assume files with extensions are static assets
   ) {
@@ -30,6 +31,6 @@ export function middleware(req: NextRequest) {
 export const config = {
   // Match all paths except for the ones that start with /api/, /_next/static/, /_next/image/, and /favicon.ico
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+    '/((?!api|backend|_next/static|_next/image|favicon.ico).*)',
   ],
 };

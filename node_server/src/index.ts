@@ -34,7 +34,11 @@ app.use(cookieParser());
 // });
 
 app.get("/", (req: Request, res: Response) => {
-  res.send("This is user server!");
+  res.json({ service: 'neuranexus-api', status: 'ok' });
+});
+
+app.get('/healthz', (_req: Request, res: Response) => {
+  res.json({ status: 'ok' });
 });
 
 app.use('/api', rootRouter)
