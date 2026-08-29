@@ -1,22 +1,19 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  images: {
-    remotePatterns: [
-      {
-        protocol: "http",
-        hostname: "localhost",
-        port: "4000",
-        pathname: "/api/file/v1/thumb/**",
-      },
-    ],
+  poweredByHeader: false,
+  reactStrictMode: true,
+  async headers() {
+    return [{
+      source: '/:path*',
+      headers: [
+        { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+        { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+      ],
+    }];
   },
-  allowedDevOrigins:["http://172.16.39.191:3000",
-      "http://localhost:3000"],
-  
 };
-// module.exports = {
-//   allowedDevOrigins: ['local-origin.dev', '*.local-origin.dev'],
-// }
 
 export default nextConfig;

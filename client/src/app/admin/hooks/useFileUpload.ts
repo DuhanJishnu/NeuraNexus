@@ -1,5 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { uploadFile, fetchDocuments, fetchDocumentsByName, deleteDocument } from '@/service/file';
+import { isAxiosError } from 'axios';
+import { FILE_ORIGIN } from '@/config/publicEnv';
 export type UploadedFile = {
   name: string;
   link: string;
@@ -13,6 +15,26 @@ export type FileWithThumbState = UploadedFile & {
   thumbLoading?: boolean;
   thumbError?: boolean;
   retryCount?: number;
+};
+
+type DocumentRecord = {
+  id: number;
+  displayName: string;
+  documentType: number;
+  documentEncryptedId: string;
+};
+
+type DocumentPage = {
+  pageNo: number;
+  totalPages: number;
+  totalCount: number;
+  documents: DocumentRecord[];
+};
+
+const apiError = (error: unknown, fallback: string) => {
+  if (!isAxiosError(error)) return fallback;
+  const data = error.response?.data as { error?: string; message?: string } | undefined;
+  return data?.error || data?.message || fallback;
 };
 
 // 1
@@ -54,9 +76,9 @@ const [searchQuery, setSearchQuery] = useState("");
 const [deleteLoading, setDeleteLoading] = useState<number | null>(null);
 
   // filetype image -1, audio  -2 pdfs -3 , word doc -4 
-  const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+  const MAX_FILE_SIZE = 50 * 1024 * 1024;
   const ALLOWED_TYPES: string[] = [
-    "image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp", "image/bmp", "image/svg+xml",
+    "image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp", "image/bmp",
     "audio/mpeg", "audio/wav", "audio/ogg", "audio/m4a", "audio/flac", "audio/aac", "audio/mp4",
     "text/plain", "application/pdf", 
     "application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -65,9 +87,9 @@ const [deleteLoading, setDeleteLoading] = useState<number | null>(null);
   // Function to check if thumbnail is available
   const checkThumbnailAvailability = async (thumbUrl: string): Promise<boolean> => {
     try {
-      const response = await fetch(thumbUrl, { method: 'HEAD' });
+      const response = await fetch(thumbUrl, { method: 'HEAD', credentials: 'include' });
       return response.status === 200;
-    } catch (error) {
+    } catch {
       return false;
     }
   };
@@ -222,7 +244,7 @@ const [deleteLoading, setDeleteLoading] = useState<number | null>(null);
     const res = await uploadFile(files);
     
     // Initialize uploaded files with loading state for thumbnails
-    const filesWithThumbState: FileWithThumbState[] = res.files.map((file: any) => ({
+    const filesWithThumbState: FileWithThumbState[] = (res.files as UploadedFile[]).map(file => ({
       ...file,
       thumbLoading: file.thumb ? true : false,
       thumbError: false,
@@ -246,8 +268,8 @@ const [deleteLoading, setDeleteLoading] = useState<number | null>(null);
     }
     setFiles([]);
     setSelectedFile(null);
-  } catch (err: any) {
-    setError(err.response?.data?.message || "Upload failed. Try again!");
+  } catch (err: unknown) {
+    setError(apiError(err, "Upload failed. Try again!"));
   } finally {
     setLoading(false);
   }
@@ -255,7 +277,7 @@ const [deleteLoading, setDeleteLoading] = useState<number | null>(null);
 
 
 // 3
-  const fetchFiles = async (page: number = 1, limit: number = 10) => {
+  const fetchFiles = useCallback(async (page: number = 1) => {
     try {
       setFilesLoading(true);
       setFilesError("");
@@ -270,13 +292,13 @@ const [deleteLoading, setDeleteLoading] = useState<number | null>(null);
   }
 };
       
-    const res = await fetchDocuments(page, 15, getFileTypeNumber(fileFilterType).toString());
+    const res = await fetchDocuments(page, getFileTypeNumber(fileFilterType).toString());
 
-       const { pageNo, pageSize, totalPages, totalCount, documents } = res.result;
-        const mappedFiles: UploadedFile[] = documents.map((doc: any) => ({
+       const { pageNo, totalPages, totalCount, documents } = res.result as DocumentPage;
+        const mappedFiles: UploadedFile[] = documents.map(doc => ({
       name: doc.displayName,
-      link: doc.documentPath || "",   // fallback to empty string
-      thumb: doc.thumbPath || undefined,
+      link: `${FILE_ORIGIN}/api/file/v1/files/${encodeURIComponent(doc.documentEncryptedId)}`,
+      thumb: `${FILE_ORIGIN}/api/file/v1/thumb/${encodeURIComponent(doc.documentEncryptedId)}`,
       fileType: doc.documentType,
       id: doc.id,
       documentEncryptedId: doc.documentEncryptedId
@@ -293,15 +315,15 @@ const [deleteLoading, setDeleteLoading] = useState<number | null>(null);
 
 
 
-    } catch (err: any) {
-      setFilesError(err.response?.data?.error || "Failed to fetch files");
+    } catch (err: unknown) {
+      setFilesError(apiError(err, "Failed to fetch files"));
     } finally {
       setFilesLoading(false);
     }
-  };
+  }, [fileFilterType]);
 
 
-  const searchFiles = async (query: string, page: number = 1) => {
+  const searchFiles = useCallback(async (query: string, page: number = 1) => {
   try {
     setFilesLoading(true);
     setFilesError("");
@@ -318,13 +340,13 @@ const [deleteLoading, setDeleteLoading] = useState<number | null>(null);
       }
     };
 
-    const res = await fetchDocumentsByName(page, 15, getFileTypeNumber(fileFilterType).toString(), query);
+    const res = await fetchDocumentsByName(page, getFileTypeNumber(fileFilterType).toString(), query);
 
-    const { pageNo, pageSize, totalPages, totalCount, documents } = res;
-    const mappedFiles: UploadedFile[] = documents.map((doc: any) => ({
+    const { pageNo, totalPages, totalCount, documents } = res as DocumentPage;
+    const mappedFiles: UploadedFile[] = documents.map(doc => ({
       name: doc.displayName,
-      link: doc.documentPath || "",
-      thumb: doc.thumbPath || undefined,
+      link: `${FILE_ORIGIN}/api/file/v1/files/${encodeURIComponent(doc.documentEncryptedId)}`,
+      thumb: `${FILE_ORIGIN}/api/file/v1/thumb/${encodeURIComponent(doc.documentEncryptedId)}`,
       fileType: doc.documentType,
        id: doc.id,
       documentEncryptedId: doc.documentEncryptedId
@@ -339,14 +361,14 @@ const [deleteLoading, setDeleteLoading] = useState<number | null>(null);
       hasPrev: pageNo > 1,
     });
 
-  } catch (err: any) {
-    setFilesError(err.response?.data?.error || "Failed to search files");
+  } catch (err: unknown) {
+    setFilesError(apiError(err, "Failed to search files"));
   } finally {
     setFilesLoading(false);
   }
-};
+  }, [fileFilterType]);
 
-const deleteFile = async (fileId: number, documentEncryptedId: string) => {
+const deleteFile = useCallback(async (fileId: number, documentEncryptedId: string) => {
    if (!documentEncryptedId) {
     setFilesError("Cannot delete file: Missing file identifier");
     return;
@@ -364,21 +386,17 @@ const deleteFile = async (fileId: number, documentEncryptedId: string) => {
       await fetchFiles(paginatedFiles.currentPage);
     }
 
-  } catch (err: any) {
-    setFilesError(err.response?.data?.error || "Failed to delete file");
+  } catch (err: unknown) {
+    setFilesError(apiError(err, "Failed to delete file"));
   } finally {
     setDeleteLoading(null);
   }
-};
+}, [fetchFiles, paginatedFiles.currentPage, searchFiles, searchQuery]);
 
 useEffect(() => {
     fetchFiles(1);
     
-  }, [fileFilterType]);
-
-  useEffect(() => {
-    return () => files.forEach((file) => URL.revokeObjectURL(file.name));
-  }, [files]);
+  }, [fetchFiles]);
 
   return {
     files,

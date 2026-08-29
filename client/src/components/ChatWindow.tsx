@@ -8,6 +8,8 @@ import { createExchange, getExchanges, streamResponse, updateExchange } from "@/
 import { useChat } from "@/context/ChatContext";
 import { updateConvTitle } from "@/service/conv";
 import Spinner from "./spinner";
+import { CitationFileInfo, Exchange, StreamFinalData } from '@/types/exchange';
+import { getFileNamesByIds } from '@/service/file';
 
 export default function ChatWindow() {
   const {
@@ -26,8 +28,9 @@ export default function ChatWindow() {
   const [atBottom, setAtBottom] = useState(true);
   const [exchangePage, setExchangePage] = useState(1);
   const [hasMoreExchanges, setHasMoreExchanges] = useState(true);
-  const loader = useRef(null);
+  const loader = useRef<HTMLDivElement | null>(null);
   const activeStreams = useRef<Array<() => void>>([]);
+  const skipNextConversationLoad = useRef(false);
   const [titleIsSet, setTitleIsSet] = useState(false);
 
   const scrollToBottom = useCallback(() => {
@@ -78,8 +81,6 @@ export default function ChatWindow() {
     setExchangePage(1);
     setHasMoreExchanges(true);
     
-    activeStreams.current.forEach(closeStream => closeStream());
-    activeStreams.current = [];
   }, [convId]);
 
   useEffect(() => {
@@ -91,13 +92,19 @@ export default function ChatWindow() {
 
   useEffect(() => {
     if (convId) {
+      if (skipNextConversationLoad.current && exchangePage === 1) {
+        skipNextConversationLoad.current = false;
+        return;
+      }
+      let cancelled = false;
       setIsLoading(true);
       getExchanges(convId, exchangePage).then((res) => {
-        const processedExchanges = res.exchanges.map((exchange: any) => ({
+        if (cancelled) return;
+        const processedExchanges = (res.exchanges as Exchange[]).map(exchange => ({
           ...exchange,
           systemResponse: {
-            answer: exchange.systemResponse.answer || "",
-            citation: exchange.systemResponse.citation 
+            answer: exchange.systemResponse?.answer || "",
+            citation: exchange.systemResponse?.citation || { files: [], fileNames: [] },
           },
         }));
         
@@ -107,18 +114,23 @@ export default function ChatWindow() {
           setExchanges((prev) => [[...processedExchanges].reverse(), ...prev].flat());
         }
         setHasMoreExchanges(res.exchanges.length > 0);
+      }).catch(() => {
+        if (!cancelled) setHasMoreExchanges(false);
       }).finally(() => {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       });
+      return () => {
+        cancelled = true;
+      };
     }
   }, [convId, exchangePage, setExchanges, setIsLoading]);
 
-  const onSend = async (text: string, image?: File) => {
-    if (!text.trim() && !image) return;
+  const onSend = async (text: string) => {
+    if (!text.trim() || isLoading) return;
     
     setIsLoading(true);
     const tempId = Date.now().toString();
-    const tempExchange = {
+    const tempExchange: Exchange = {
       id: tempId,
       userQuery: text,
       systemResponse: { 
@@ -129,15 +141,23 @@ export default function ChatWindow() {
         } 
       },
       createdAt: new Date().toISOString(),
-      image: image ? URL.createObjectURL(image) : undefined,
     };
 
     setExchanges((prev) => [...prev, tempExchange]);
+    let currentExchangeId = tempId;
     
     try {
-      const res = await createExchange(text, convId, convTitle, image);
+      const res = await createExchange(text, convId, convTitle);
+      const exchangeId: string = res.exchange.id;
+      currentExchangeId = exchangeId;
+      const effectiveConversationId: string = res.conversation?.id || convId;
+
+      setExchanges(prev => prev.map(exchange =>
+        exchange.id === tempId ? { ...exchange, id: exchangeId } : exchange
+      ));
 
       if (!convId && res.conversation) {
+        skipNextConversationLoad.current = true;
         setConvId(res.conversation.id);
         setConvTitle(res.conversation.title);
         addNewConversation({
@@ -147,17 +167,15 @@ export default function ChatWindow() {
       }
 
       let answer = ""; 
-      let retryAttempt = 0;
-      
-      const closeStream = await streamResponse(
-        res.responseId,
-        async (message: string) => {
 
+      const stream = streamResponse(
+        res.responseId,
+        (message: string) => {
           answer += message;
 
           setExchanges((prev) =>
             prev.map((m) =>
-              m.id === tempId ? { 
+              m.id === exchangeId ? {
                 ...m, 
                 systemResponse: { 
                   ...m.systemResponse, 
@@ -166,43 +184,46 @@ export default function ChatWindow() {
             )
           );
         },
-        async (retrievals: any) => {
+        async (retrievals: StreamFinalData) => {
           const retrievedFilesSet: Set<string> = new Set();
-          const fileInfos: Array<Record<string, any>> = [];
+          const filesToPages = new Map<string, Set<number>>();
+          const infoByFile = new Map<string, CitationFileInfo>();
 
-          const files_to_pages = new Map<string, Set<number>>();
-
-          for (const document of retrievals.retrieved_documents) {
+          for (const document of retrievals.retrieved_documents ?? []) {
             const fileId = document.metadata.file_id.replace(".pdf", "");
             retrievedFilesSet.add(fileId);
 
             const chunkType = document.metadata.chunk_type;
 
             if (chunkType === "audio_transcript") {
-              fileInfos.push({
+              infoByFile.set(fileId, {
+                fileId,
                 startTime: document.metadata.start_time,
                 endTime: document.metadata.end_time,
                 duration: document.metadata.duration,
               });
 
             } else if (chunkType === "text") {
-              if (!files_to_pages.has(fileId)) {
-                files_to_pages.set(fileId, new Set());
+              if (!filesToPages.has(fileId)) {
+                filesToPages.set(fileId, new Set());
               }
-              files_to_pages.get(fileId)!.add(document.metadata.page_number);
+              if (typeof document.metadata.page_number === 'number') {
+                filesToPages.get(fileId)!.add(document.metadata.page_number);
+              }
             }
           }
 
-          for (const [fileId, pagesSet] of files_to_pages.entries()) {
-            fileInfos.push({
+          for (const [fileId, pagesSet] of filesToPages.entries()) {
+            infoByFile.set(fileId, {
               fileId,
               pageNumbers: Array.from(pagesSet).sort((a, b) => a - b),
             });
           }
 
           const retrievedFiles = Array.from(retrievedFilesSet);
+          const fileInfos = retrievedFiles.map(fileId => infoByFile.get(fileId) || { fileId });
 
-          if (!titleIsSet && convId) {
+          if (!titleIsSet && effectiveConversationId) {
             
             let newTitle = answer
               .split(/\\n|\n/)[0]
@@ -218,7 +239,7 @@ export default function ChatWindow() {
               setTitleIsSet(true);
               setConvTitle(newTitle);
               
-              updateConvTitle(convId, newTitle).then(() => {
+              updateConvTitle(effectiveConversationId, newTitle).then(() => {
                 refreshConversations();
               }).catch((error) => {
                 console.error("Failed to update title:", error);
@@ -230,14 +251,7 @@ export default function ChatWindow() {
           
           if (retrievedFiles.length > 0) {
             try {
-              const response = await fetch(`${process.env.NEXT_PUBLIC_FILE_BASE_URL}/api/file/v1/getFileNamesbyId`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ encryptedIds: retrievedFiles }),
-              });
-              const data = await response.json();
+              const data = await getFileNamesByIds(retrievedFiles);
               fileNames = data.fileNames || [];
             } catch (error) {
               console.error('Error fetching file names:', error);
@@ -247,7 +261,7 @@ export default function ChatWindow() {
 
           setExchanges((prev) =>
             prev.map((exchange) =>
-              exchange.id === tempId 
+              exchange.id === exchangeId
                 ? { 
                     ...exchange, 
                     systemResponse: {
@@ -264,7 +278,7 @@ export default function ChatWindow() {
           );
           
           await updateExchange(
-            res.exchange.id,
+            exchangeId,
             {
               answer: answer,
               citation: {
@@ -275,38 +289,33 @@ export default function ChatWindow() {
             }
           );
         },
-        (error: any) => {
-          retryAttempt++;
-          console.error(`Streaming error (attempt ${retryAttempt}):`, error);
-          
-          // Show retry message to user
-          const retryMessage = retryAttempt < 3 
-            ? `\n\n⚠️ Connection issue, retrying... (${retryAttempt}/3)`
-            : "\n\n❌ Failed to receive response after 3 attempts. Please try again.";
-            
+        () => {
           setExchanges((prev) =>
             prev.map((m) =>
-              m.id === tempId 
+              m.id === exchangeId
                 ? { ...m, systemResponse: {
                    ...m.systemResponse, 
-                   answer: m.systemResponse.answer + retryMessage
+                   answer: `${m.systemResponse.answer}\n\n❌ The response stream disconnected. Please try again.`
                   }
                 } : m
             )
           );
         },
-        3 // Set retry count to 3
+        3,
       );
 
-      activeStreams.current.push(closeStream);
-    } catch (err) {
-      console.error("Send failed", err);
+      activeStreams.current.push(stream.close);
+      await stream.done;
+      activeStreams.current = activeStreams.current.filter(close => close !== stream.close);
+    } catch {
       setExchanges((prev) =>
         prev.map((m) =>
-          m.id === tempId ? { 
+          m.id === currentExchangeId ? {
             ...m, systemResponse: {
               ...m.systemResponse,
-              answer: m.systemResponse.answer + "\n\nError: Failed to receive response"
+              answer: m.systemResponse.answer.includes('❌')
+                ? m.systemResponse.answer
+                : `${m.systemResponse.answer}\n\n❌ Failed to receive a response.`
             } 
           } : m
         )
@@ -360,7 +369,7 @@ export default function ChatWindow() {
                   Start a conversation
                 </h3>
                 <p className="text-gray-500 dark:text-gray-400 max-w-sm mx-auto">
-                  Send a message to begin chatting. Ask questions, share images, or explore ideas together.
+                  Ask a grounded question about the documents available to you.
                 </p>
               </motion.div>
             ) : (
@@ -409,7 +418,7 @@ export default function ChatWindow() {
       )}
       <div className="border-t border-gray-100 dark:border-gray-800 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto px-4 py-4">
-          <ChatInput onSend={onSend} conv_id={convId} setConvId={setConvId} />
+          <ChatInput onSend={onSend} disabled={isLoading} />
         </div>
       </div>
     </div>

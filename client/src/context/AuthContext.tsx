@@ -8,13 +8,14 @@ interface User {
   id: string;
   username: string;
   email: string;
+  role: 'USER' | 'ADMIN';
 }
 
 interface AuthContextType {
   isAuthenticated: boolean;
   user: User | null;
-  login: () => void;
-  logout: () => void;
+  login: () => Promise<User>;
+  logout: () => Promise<void>;
   loading: boolean;
 }
 
@@ -29,7 +30,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     getMe()
       .then(userData => {
-        console.log(userData);
         setUser(userData);
         setIsAuthenticated(true);
       })
@@ -41,22 +41,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
 
-  const login = useCallback(() => {
-  getMe().then(userData => {
+  const login = useCallback(async () => {
+    const userData = await getMe() as User;
     setUser(userData);
     setIsAuthenticated(true);
-    router.push('/');
-  });
-}, [router]);
+    return userData;
+  }, []);
 
 
-  const logout = useCallback(() => {
-  logoutService().finally(() => {
-    setUser(null);
-    setIsAuthenticated(false);
-    router.push('/login');
-  });
-}, [router]);
+  const logout = useCallback(async () => {
+    try {
+      await logoutService();
+    } finally {
+      setUser(null);
+      setIsAuthenticated(false);
+      router.replace('/login');
+    }
+  }, [router]);
 
 
   return (

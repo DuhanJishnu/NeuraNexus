@@ -21,13 +21,6 @@ const handlePageChange = (page: number) => {
     upload.fetchFiles(page);
   }
   };
- React.useEffect(() => {
-    if (upload.searchQuery) {
-      upload.searchFiles(upload.searchQuery, 1);
-    } else {
-      upload.fetchFiles(1);
-    }
-  }, [upload.fileFilterType]);
   return (
     <div className="rounded-2xl bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-700 shadow-2xl overflow-hidden">
       {/* Header */}

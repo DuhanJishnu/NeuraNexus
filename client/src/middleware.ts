@@ -2,14 +2,15 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function middleware(req: NextRequest) {
-  const accessToken = req.cookies.get('access_token');
+  const hasSession = Boolean(
+    req.cookies.get('access_token') || req.cookies.get('refresh_token'),
+  );
   const { pathname } = req.nextUrl;
 
   // Allow requests for auth pages, static files, and public assets
   if (
-    pathname.startsWith('/login') ||
-    pathname.startsWith('/signup') ||
-    pathname.startsWith('/') ||
+    pathname === '/login' ||
+    pathname === '/signup' ||
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/api/') || // Exclude API routes from redirection
     pathname.includes('.') // Assume files with extensions are static assets
@@ -18,7 +19,7 @@ export function middleware(req: NextRequest) {
   }
 
   // If trying to access a protected route without a token, redirect to login
-  if (!accessToken) {
+  if (!hasSession) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
 

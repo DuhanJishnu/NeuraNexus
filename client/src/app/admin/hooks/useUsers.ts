@@ -1,80 +1,51 @@
-// app/admin/hooks/useUsers.ts
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useState } from 'react';
+import { isAxiosError } from 'axios';
 import { toast } from 'react-toastify';
-import { User, AddUserResponse } from '../types/User';
+import { User } from '../types/User';
 import { api } from '@/service/api';
 
+
+const errorMessage = (error: unknown, fallback: string) => {
+  if (!isAxiosError(error)) return fallback;
+  const data = error.response?.data as { message?: string } | undefined;
+  return data?.message || fallback;
+};
 
 export const useUsers = () => {
   const [users, setUsers] = useState<User[]>([]);
 
-  
-const demoUsers: User[] = Array.from({ length: 200 }, (_, i) => ({
-  id: i + 1,
-  name: `User${i+1}`,
-  email: `user${i + 1}@example.com`,
-  role: i % 2 === 0 ? 'admin' : 'employee',
-  createdAt: new Date(2024, 0, 1 + i).toISOString()
-}));
+  const findUser = useCallback(async (email: string) => {
+    const response = await api.get<User>('/auth/v1/getuser', { params: { email } });
+    setUsers(current => [
+      response.data,
+      ...current.filter(user => user.id !== response.data.id),
+    ]);
+    return response.data;
+  }, []);
 
-
-
-  // Fetch all users
-  const fetchUsers = async () => {
+  const addUser = useCallback(async (email: string) => {
     try {
-      // const response = await api.get<User[]>(`/api/admin/users`);
-      // setUsers(response.data);
-      setUsers(demoUsers);
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.message || 'Failed to fetch users';
-      toast.error(errorMsg);
-      console.error('Error fetching users:', err);
-    } 
-  };
-
-  // Add new admin user
-  const addUser = async (email: string) => {
-    
-    try {
-     
-      const response = await api.put<AddUserResponse>(`/api/admin/users`, {
-        email,
-        role: 'admin'
+      const user = await findUser(email);
+      const response = await api.patch<User & { message: string }>('/auth/v1/makeadmin', {
+        userId: user.id,
       });
-      
-      if (response.data.success) {
-        
-        toast.success(response.data.message);
-        // Refresh the user list
-        await fetchUsers();
-        return true;
-      } else {
-      
-        toast.error(response.data.message);
-        return false;
-      }
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.message || 'Failed to add user';
-    
-      toast.error(errorMsg);
+      setUsers(current => [
+        response.data,
+        ...current.filter(item => item.id !== response.data.id),
+      ]);
+      toast.success(response.data.message);
+      return true;
+    } catch (error: unknown) {
+      toast.error(errorMessage(error, 'Failed to promote user'));
       return false;
     }
-  };
-
-  
-  useEffect(() => {
-  setUsers(demoUsers);
-}, []);
-
-  // useEffect(() => {
-  //   fetchUsers();
-  // }, []);
+  }, [findUser]);
 
   return {
     users,
     addUser,
-    refetch: fetchUsers
+    refetch: async () => undefined,
   };
 };

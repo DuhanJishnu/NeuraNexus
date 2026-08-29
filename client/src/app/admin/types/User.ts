@@ -1,16 +1,13 @@
 // app/admin/types/user.ts
 export interface User {
-  id: number;
-  name:String;
+  id: string;
+  username: string;
   email: string;
-  role: 'employee' | 'admin';
+  role: 'USER' | 'ADMIN';
   createdAt?: string;
 }
 
 export interface AddUserResponse {
-  success: boolean;
   message: string;
-  user?: User;
 }
-
 

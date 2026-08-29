@@ -1,6 +1,6 @@
 "use client";
 
-import { Exchange, Response } from "@/types/exchange";
+import { Exchange } from "@/types/exchange";
 import React, {
   createContext,
   useContext,

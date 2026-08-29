@@ -39,50 +39,13 @@ export default function LoginPage() {
   const { login: authLogin, isAuthenticated, loading } = useAuth();
   const [formData, setFormData] = React.useState({ email: "", password: "" });
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [mousePosition, setMousePosition] = React.useState({ x: 0, y: 0 });
-  const [cursorVariant, setCursorVariant] = React.useState("default");
-  const [isMounted, setIsMounted] = React.useState(false);
 
   // Redirect to home if already authenticated
   React.useEffect(() => {
     if (!loading && isAuthenticated) {
-      router.push('/');
+      router.replace('/');
     }
   }, [isAuthenticated, loading, router]);
-
-  // Set mounted state to avoid hydration issues
-  React.useEffect(() => {
-    setIsMounted(true);
-  }, []);
-  
-  // Mouse movement tracker - only run on client
-  React.useEffect(() => {
-    if (!isMounted) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      setMousePosition({ x: e.clientX, y: e.clientY });
-    };
-
-    const handleMouseEnter = () => setCursorVariant("default");
-    const handleMouseLeave = () => setCursorVariant("hidden");
-
-    window.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseenter", handleMouseEnter);
-    document.addEventListener("mouseleave", handleMouseLeave);
-
-    // Change cursor on interactive elements
-    const interactiveElements = document.querySelectorAll("button, input, a");
-    interactiveElements.forEach(el => {
-      el.addEventListener("mouseenter", () => setCursorVariant("interactive"));
-      el.addEventListener("mouseleave", () => setCursorVariant("default"));
-    });
-
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseenter", handleMouseEnter);
-      document.removeEventListener("mouseleave", handleMouseLeave);
-    };
-  }, [isMounted]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -105,8 +68,8 @@ export default function LoginPage() {
 
     try {
       await login(formData.email, formData.password);
-      authLogin();
-      router.push("/admin");
+      const user = await authLogin();
+      router.replace(user.role === 'ADMIN' ? '/admin' : '/');
 
       toast.success("Login successful!");
     } catch (err) {
@@ -160,39 +123,6 @@ export default function LoginPage() {
         {/* Grid pattern */}
         <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:50px_50px]"></div>
       </div>
-
-      {/* Custom Animated Cursor - only render on client */}
-      {isMounted && (
-        <div
-          className={`fixed pointer-events-none z-50 transition-transform duration-100 ease-out ${
-            cursorVariant === "hidden" ? "opacity-0" : "opacity-100"
-          }`}
-          style={{
-            left: `${mousePosition.x}px`,
-            top: `${mousePosition.y}px`,
-            transform: `translate(-50%, -50%) scale(${
-              cursorVariant === "interactive" ? 2 : 1
-            })`,
-          }}
-        >
-          <div className="relative">
-            {/* Main cursor dot */}
-            <div className={`w-3 h-3 bg-white rounded-full transition-all duration-200 ${
-              cursorVariant === "interactive" ? "bg-blue-400 scale-150" : ""
-            }`}></div>
-            
-            {/* Pulsing ring */}
-            <div className={`absolute inset-0 border-2 border-white rounded-full animate-ping ${
-              cursorVariant === "interactive" ? "border-blue-300" : ""
-            }`}></div>
-            
-            {/* Outer ring */}
-            <div className={`absolute inset-0 border border-gray-400 rounded-full transition-all duration-300 ${
-              cursorVariant === "interactive" ? "scale-150 border-blue-200" : ""
-            }`}></div>
-          </div>
-        </div>
-      )}
 
       {/* React Hot Toast */}
       <Toaster position="top-right" reverseOrder={false} />
@@ -289,43 +219,13 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Add custom CSS for animations */}
+      {/* Floating background animation */}
       <style jsx>{`
         @keyframes float {
           0%, 100% { transform: translateY(0) rotate(0deg); }
           50% { transform: translateY(-20px) rotate(180deg); }
         }
-        
-        /* Only hide default cursor on client side */
-        body {
-          cursor: default;
-        }
-        
-        /* Ensure interactive elements are still clickable */
-        button, input, a {
-          cursor: pointer;
-        }
-        
-        /* Hide default cursor when custom cursor is mounted */
-        body.custom-cursor {
-          cursor: none;
-        }
-        
-        body.custom-cursor button,
-        body.custom-cursor input,
-        body.custom-cursor a {
-          cursor: none;
-        }
       `}</style>
-
-      {/* Script to add custom cursor class when mounted */}
-      {isMounted && (
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `document.body.classList.add('custom-cursor');`,
-          }}
-        />
-      )}
     </div>
   );
 }

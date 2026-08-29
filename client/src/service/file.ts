@@ -33,23 +33,26 @@ export const getThumbnail = async (encryptedId: string) => {
   return res.data;
 };
 
+export const getFileNamesByIds = async (encryptedIds: string[]) => {
+  const response = await api.post('/file/v1/getFileNamesbyId', { encryptedIds });
+  return response.data as { fileNames?: string[] };
+};
+
 // Fetch Documents
-export const fetchDocuments = async (pageNo: number, pageSize: number, docType: string) => {
+export const fetchDocuments = async (pageNo: number, docType: string) => {
   const res = await api.post("/file/v1/fetchdocuments", {
     pageNo,
-    pageSize,
     docType
   });
   return res.data;
 };
 
 // Fetch Documents by Name
-export const fetchDocumentsByName = async (pageNo: number, pageSize: number, docType: string, searchQuery: string) => {
+export const fetchDocumentsByName = async (pageNo: number, docType: string, name: string) => {
   const res = await api.post("/file/v1/fetchdocumentsbyName", {
     pageNo,
-    pageSize,
     docType,
-    searchQuery
+    name,
   });
   return res.data;
 };
@@ -57,7 +60,7 @@ export const fetchDocumentsByName = async (pageNo: number, pageSize: number, doc
 // Delete Document
 export const deleteDocument = async (encryptedId: string) => {
   const res = await api.delete("/file/v1/delete", {
-    data: { encryptedId }
+    data: { id: encryptedId }
   });
   return res.data;
 };

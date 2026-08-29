@@ -2,7 +2,6 @@
 'use client';
 
 import { useState } from 'react';
-import { toast } from 'react-toastify';
 
 interface AddUserFormProps {
   onAddUser: (email: string) => Promise<void>;

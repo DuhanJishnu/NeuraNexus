@@ -1,5 +1,8 @@
 // app/admin/components/FileUpload/FileViewer.tsx
-import React from "react";
+"use client";
+
+import React, { useEffect, useState } from "react";
+import Image from 'next/image';
 
 interface FileViewerProps {
   file: File;
@@ -7,8 +10,13 @@ interface FileViewerProps {
 }
 
 const FileViewer: React.FC<FileViewerProps> = ({ file, onClose }) => {
-  // creating a temporary url to show them in preview
-  const url = URL.createObjectURL(file);
+  const [url, setUrl] = useState('');
+
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
 
   return (
     <div className="mt-6 p-6 rounded-2xl bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-700 shadow-xl">
@@ -29,10 +37,17 @@ const FileViewer: React.FC<FileViewerProps> = ({ file, onClose }) => {
       </div>
 
       <div className="rounded-xl overflow-hidden bg-black/20">
-        {file.type.startsWith("image/") && (
-          <img src={url} alt={file.name} className="w-full max-h-96 object-contain rounded-lg" />
+        {url && file.type.startsWith("image/") && (
+          <Image
+            src={url}
+            alt={file.name}
+            width={1200}
+            height={800}
+            unoptimized
+            className="w-full max-h-96 object-contain rounded-lg"
+          />
         )}
-        {file.type.startsWith("audio/") && (
+        {url && file.type.startsWith("audio/") && (
           <div className="p-6">
             <audio controls className="w-full text-gray-200 rounded-lg">
               <source src={url} type={file.type} />
@@ -40,7 +55,7 @@ const FileViewer: React.FC<FileViewerProps> = ({ file, onClose }) => {
             </audio>
           </div>
         )}
-        {(file.type === "text/plain" || file.type === "application/pdf") && (
+        {url && (file.type === "text/plain" || file.type === "application/pdf") && (
           <iframe src={url} className="w-full h-96 border-0 rounded-lg" title={file.name} />
         )}
         {!file.type.startsWith("image/") &&

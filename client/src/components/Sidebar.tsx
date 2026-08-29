@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { getRecentConversations } from "@/service/conv";
 import { useChat } from "@/context/ChatContext";
-import { getExchanges } from "@/service/exch";
 import {
   PlusIcon,
   ChatBubbleLeftRightIcon,
@@ -32,7 +31,6 @@ const Sidebar = ({ isOpen }: { isOpen: boolean }) => {
     setConvTitle,
     setRefreshConversations,
     setAddNewConversation,
-    setIsLoading: setChatLoading,
   } = useChat();
   const loader = useRef(null);
 
@@ -83,7 +81,12 @@ const Sidebar = ({ isOpen }: { isOpen: boolean }) => {
       setRefreshConversations(() => () => {});
       setAddNewConversation(() => () => {});
     };
-  }, [refreshConversationList, addNewConversationToList]);
+  }, [
+    refreshConversationList,
+    addNewConversationToList,
+    setAddNewConversation,
+    setRefreshConversations,
+  ]);
 
   useEffect(() => {
     if (isOpen) fetchConversations(page);
@@ -117,19 +120,11 @@ const Sidebar = ({ isOpen }: { isOpen: boolean }) => {
     setShowAllConversations(false);
   };
 
-  const handleConversationClick = async (conv: Conversation) => {
+  const handleConversationClick = (conv: Conversation) => {
+    setExchanges([]);
     setSelectedConv(conv.id);
     setConvId(conv.id);
     setConvTitle(conv.title);
-    setChatLoading(true);
-    try {
-      const res = await getExchanges(conv.id, 1);
-      setExchanges([...res.exchanges].reverse());
-    } catch (error) {
-      console.error("Failed to fetch exchanges", error);
-    } finally {
-      setChatLoading(false);
-    }
   };
 
   const toggleShowAllConversations = () => {

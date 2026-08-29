@@ -20,6 +20,7 @@ export default function Header({
         <div className="flex items-center gap-4">
           <button
             onClick={toggleSidebar}
+            aria-label="Toggle conversation sidebar"
             className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-gray-700/50 transition-colors duration-200"
           >
             <Bars3Icon className="w-6 h-6" />
@@ -35,6 +36,7 @@ export default function Header({
           </div>
           <button 
             onClick={toggleModal} 
+            aria-label="Open profile menu"
             className="p-1.5 rounded-full hover:bg-gray-700/50 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500"
           >
             <UserCircleIcon className="w-7 h-7 text-gray-400" />

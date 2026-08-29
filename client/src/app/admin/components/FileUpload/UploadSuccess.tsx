@@ -1,4 +1,5 @@
 import React from "react";
+import Image from 'next/image';
 import type { UploadedFile } from "../../../admin/hooks/useFileUpload";
 
 interface UploadSuccessProps {
@@ -23,7 +24,7 @@ const UploadSuccess: React.FC<UploadSuccessProps> = ({ uploadedFiles }) => {
       <div className="space-y-2 max-h-48 overflow-y-scroll no-scrollbar">
         {uploadedFiles.map((file, idx) => (
           <a
-            key={idx}
+            key={file.documentEncryptedId || file.link || idx}
             href={file.link}
             target="_blank"
             rel="noreferrer"
@@ -31,9 +32,12 @@ const UploadSuccess: React.FC<UploadSuccessProps> = ({ uploadedFiles }) => {
           >
             <div className="flex items-center space-x-3 flex-1 min-w-0">
               {file.thumb ? (
-                <img
+                <Image
                   src={file.thumb}
                   alt={file.name}
+                  width={40}
+                  height={40}
+                  unoptimized
                   className="w-10 h-10 rounded-md object-cover"
                 />
               ) : (

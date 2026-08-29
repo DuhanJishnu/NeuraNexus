@@ -8,7 +8,7 @@ import SearchBar from './SearchBar';
 import AddUserForm from './AddUserForm';
 
 export default function UsersPage() {
-  const { users, addUser, refetch } = useUsers();
+  const { users, addUser } = useUsers();
  
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
@@ -21,7 +21,7 @@ export default function UsersPage() {
 const filteredUsers = useMemo(() => {
   return users.filter(user =>
     user.email.toLowerCase().includes(normalizedSearch) ||
-    user.name.toLowerCase().includes(normalizedSearch) ||
+    user.username.toLowerCase().includes(normalizedSearch) ||
     user.role.toLowerCase().includes(normalizedSearch)
   );
 }, [users, normalizedSearch]);
@@ -81,7 +81,7 @@ const filteredUsers = useMemo(() => {
         {/* Users Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
           {paginatedUsers.map((user) => (
-            <UserCard key={user.id} user={user} onUserUpdate={refetch} />
+            <UserCard key={user.id} user={user} />
           ))}
         </div>
 

@@ -5,12 +5,11 @@ import  { User } from '../../types/User';
 
 interface UserCardProps {
   user: User;
-  onUserUpdate: () => void;
 }
 
-export default function UserCard({ user, onUserUpdate }: UserCardProps) {
+export default function UserCard({ user }: UserCardProps) {
   const getRoleColor = (role: string) => {
-    return role === 'admin' ? 'bg-purple-600' : 'bg-green-600';
+    return role === 'ADMIN' ? 'bg-purple-600' : 'bg-green-600';
   };
 
   const formatDate = (dateString?: string) => {
@@ -23,7 +22,7 @@ export default function UserCard({ user, onUserUpdate }: UserCardProps) {
       {/* Header with Name and Role */}
       <div className="flex justify-between items-start mb-4">
         <h3 className="text-lg font-semibold text-white truncate">
-          {user.name || 'Unnamed User'}
+          {user.username || 'Unnamed User'}
         </h3>
         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getRoleColor(user.role)}`}>
           {user.role}
@@ -49,7 +48,7 @@ export default function UserCard({ user, onUserUpdate }: UserCardProps) {
       </div>
 
       {/* Admin Badge */}
-      {user.role === 'admin' && (
+      {user.role === 'ADMIN' && (
         <div className="flex items-center mt-4 pt-4 border-t border-gray-700">
           <svg className="h-4 w-4 text-yellow-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 10.586V7z" clipRule="evenodd" />

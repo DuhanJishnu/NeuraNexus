@@ -1,164 +1,186 @@
-import { Response } from "@/types/exchange";
-import api  from "./api";
+import { API_ORIGIN } from '@/config/publicEnv';
+import { StreamFinalData, SystemResponse } from '@/types/exchange';
+import api from './api';
 
-// Get Exchanges
-export const getExchanges = async (
-  //accessToken: string,
-  conversationId: string,
-  page: number
-) => {
-  const res = await api.post("/exch/v1/getexch", {
-    //headers: { Authorization: accessToken },
+
+export const getExchanges = async (conversationId: string, page: number) => {
+  const response = await api.post('/exch/v1/getexch', {
     data: { conversationId, page },
   });
-  console.log("res data : ", res.data);
-  return res.data;
+  return response.data;
 };
 
-// Create Exchange
 export const createExchange = async (
   user_query: string,
   convId?: string,
   convTitle?: string,
-  image?: File
 ) => {
-  
-  const res = await api.post("/exch/v1/createexch", {
+  const response = await api.post('/exch/v1/createexch', {
     user_query,
     convId,
     convTitle,
   });
-  return res.data;
+  return response.data;
 };
 
 export const updateExchange = async (
   exchangeId: string,
-  systemResponse: Response,
-  files?: Array<string>
+  systemResponse: SystemResponse,
 ) => {
-  const res = await api.put("/exch/v1/updateexch", {
+  const response = await api.put('/exch/v1/updateexch', {
     exchangeId,
     systemResponse,
-    files,
   });
-  return res.data;
+  return response.data;
 };
 
-export const streamResponse = async (
-  responseId: string, 
-  onMessage: (message: string) => void, 
-  onEnd: (retrievals: JsonWebKey) => void, 
-  onError: (error: any) => void,
-  retryCount: number = 3
-) => {
-  let currentRetry = 0;
-  
-  const attemptConnection = (): Promise<() => void> => {
-    return new Promise((resolve, reject) => {
-      console.log(`Attempting stream connection, retry ${currentRetry}/${retryCount}`);
-      
-      const eventSource = new EventSource(`${process.env.NEXT_PUBLIC_BASEURL}/api/exch/v1/stream-response/${responseId}`, {
-        withCredentials: true,
-      });
+export interface ResponseStream {
+  close: () => void;
+  done: Promise<void>;
+}
 
-      // Set a timeout to prevent hanging connections
-      const timeoutId = setTimeout(() => {
-        console.error("EventSource timeout after 30 seconds");
-        eventSource.close();
-        handleRetry(new Error("Connection timeout"));
-      }, 30000);
+const decodeChunk = (value: string): string => {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === 'string' ? parsed : value;
+  } catch {
+    return value;
+  }
+};
 
-      const handleRetry = (error: any) => {
-        clearTimeout(timeoutId);
-        eventSource.close();
-        
-        if (currentRetry < retryCount) {
-          currentRetry++;
-          console.log(`Retrying stream connection in 2 seconds... (${currentRetry}/${retryCount})`);
-          
-          setTimeout(() => {
-            attemptConnection().then(resolve).catch(reject);
-          }, 2000);
-        } else {
-          console.error("Max retries reached for stream connection");
-          reject(error);
-        }
-      };
+export const streamResponse = (
+  responseId: string,
+  onMessage: (message: string) => void,
+  onEnd: (result: StreamFinalData) => void | Promise<void>,
+  onError: (error: Error) => void,
+  retryCount = 3,
+): ResponseStream => {
+  let eventSource: EventSource | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+  let retries = 0;
+  let lastEventId = '0-0';
+  let settled = false;
+  let manuallyClosed = false;
+  let resolveDone: () => void;
+  let rejectDone: (error: Error) => void;
 
-      eventSource.addEventListener("answer_chunk", (event) => {
-        clearTimeout(timeoutId);
-        let chunk = (event as MessageEvent).data;
-        chunk = chunk.slice(1, -1);
-        onMessage(chunk);
-      });
+  const done = new Promise<void>((resolve, reject) => {
+    resolveDone = resolve;
+    rejectDone = reject;
+  });
 
-      eventSource.addEventListener("final", (event) => {
-        clearTimeout(timeoutId);
-        const finalData = JSON.parse((event as MessageEvent).data);
-        if (finalData.retrieved_documents && finalData.retrieved_documents.length > 0) {
-          onEnd(finalData);
-        } else {
-          console.log("Final answer:", finalData.answer);
-          if (finalData.answer) {
-            onMessage(finalData.answer);
-          }
-        }
-        eventSource.close();
-        resolve(() => {
-          clearTimeout(timeoutId);
-          eventSource.close();
-        });
-      });
-
-      // heartbeat
-      eventSource.addEventListener("heartbeat", (event) => {
-        console.log("Heartbeat:", (event as MessageEvent).data);
-      });
-
-      // Handle error events from server
-      eventSource.addEventListener("error_event", (event) => {
-        clearTimeout(timeoutId);
-        console.error("Server error event:", (event as MessageEvent).data);
-        handleRetry(new Error((event as MessageEvent).data));
-      });
-
-      eventSource.addEventListener("close", (event) => {
-        clearTimeout(timeoutId);
-        console.log("Server closed connection:", (event as MessageEvent).data);
-        eventSource.close();
-        resolve(() => {
-          clearTimeout(timeoutId);
-          eventSource.close();
-        });
-      });
-
-      eventSource.onerror = (error) => {
-        console.error("EventSource error:", error);
-        
-        // Check if it's a connection error vs other types
-        if (eventSource.readyState === EventSource.CLOSED) {
-          handleRetry(error);
-        } else {
-          clearTimeout(timeoutId);
-          eventSource.close();
-          reject(error);
-        }
-      };
-
-      // Handle successful connection
-      eventSource.addEventListener("open", () => {
-        console.log("EventSource connection opened successfully");
-        currentRetry = 0; // Reset retry count on successful connection
-      });
-    });
+  const clearTimers = () => {
+    if (retryTimer) clearTimeout(retryTimer);
+    if (inactivityTimer) clearTimeout(inactivityTimer);
+    retryTimer = null;
+    inactivityTimer = null;
   };
 
-  try {
-    const closeFunction = await attemptConnection();
-    return closeFunction;
-  } catch (error) {
-    console.error("Failed to establish stream connection after retries:", error);
+  const closeSource = () => {
+    eventSource?.close();
+    eventSource = null;
+  };
+
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    clearTimers();
+    closeSource();
+    resolveDone();
+  };
+
+  const fail = (error: Error) => {
+    if (settled) return;
+    settled = true;
+    clearTimers();
+    closeSource();
     onError(error);
-    return () => {}; // Return empty close function
-  }
+    rejectDone(error);
+  };
+
+  const connect = () => {
+    if (settled || manuallyClosed) return;
+    closeSource();
+    const streamUrl = new URL(
+      `/api/exch/v1/stream-response/${encodeURIComponent(responseId)}`,
+      API_ORIGIN,
+    );
+    streamUrl.searchParams.set('lastEventId', lastEventId);
+    eventSource = new EventSource(
+      streamUrl.toString(),
+      { withCredentials: true },
+    );
+
+    const resetInactivityTimer = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        reconnect(new Error('Response stream timed out'));
+      }, 45_000);
+    };
+
+    const reconnect = (error: Error) => {
+      clearTimers();
+      closeSource();
+      if (settled || manuallyClosed) return;
+      if (retries >= retryCount) {
+        fail(error);
+        return;
+      }
+      retries += 1;
+      retryTimer = setTimeout(connect, Math.min(1_000 * 2 ** (retries - 1), 8_000));
+    };
+
+    const rememberEventId = (event: Event) => {
+      const id = (event as MessageEvent<string>).lastEventId;
+      if (id) lastEventId = id;
+    };
+
+    resetInactivityTimer();
+
+    eventSource.addEventListener('answer_chunk', event => {
+      resetInactivityTimer();
+      rememberEventId(event);
+      onMessage(decodeChunk((event as MessageEvent<string>).data));
+    });
+
+    eventSource.addEventListener('final', event => {
+      resetInactivityTimer();
+      rememberEventId(event);
+      let result: StreamFinalData;
+      try {
+        result = JSON.parse((event as MessageEvent<string>).data) as StreamFinalData;
+      } catch {
+        fail(new Error('The server returned an invalid final stream event'));
+        return;
+      }
+      Promise.resolve(onEnd(result)).then(finish).catch(error => {
+        fail(error instanceof Error ? error : new Error('Failed to finalize response'));
+      });
+    });
+
+    eventSource.addEventListener('heartbeat', resetInactivityTimer);
+    eventSource.addEventListener('server_error', event => {
+      rememberEventId(event);
+      let message = 'The response service failed';
+      try {
+        const data = JSON.parse((event as MessageEvent<string>).data) as { error?: string };
+        if (data.error) message = data.error;
+      } catch {
+        // Preserve the safe fallback for malformed server errors.
+      }
+      fail(new Error(message));
+    });
+    eventSource.addEventListener('close', finish);
+    eventSource.onerror = () => reconnect(new Error('Response stream disconnected'));
+  };
+
+  const close = () => {
+    if (settled) return;
+    manuallyClosed = true;
+    finish();
+  };
+
+  connect();
+  return { close, done };
 };

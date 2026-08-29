@@ -4,6 +4,7 @@
 import React, { useState } from "react";
 import FileUpload from "../admin/components/FileUpload/index";
 import AdminUserManager from "./components/AdminHandling/AdminUserManager";
+import withAuth from '@/components/withAuth';
 
 type AdminSection = 'files' | 'users';
 
@@ -52,4 +53,4 @@ const AdminPage: React.FC = () => {
   );
 };
 
-export default AdminPage;
+export default withAuth(AdminPage, 'ADMIN');

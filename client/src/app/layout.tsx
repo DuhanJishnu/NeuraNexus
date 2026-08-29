@@ -4,8 +4,8 @@ import './globals.css';
 import { AuthProvider } from "@/context/AuthContext";
 
 export const metadata: Metadata = {
-  title: "RAGnarok Assistant",
-  description: "Built for multi format data interpretation and analysis.",
+  title: "NeuraNexus",
+  description: "Secure, citation-grounded AI assistance across your documents.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

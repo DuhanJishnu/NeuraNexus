@@ -9,19 +9,17 @@ The Next.js client is the user-facing interface of the NeuraNexus platform, offe
 ## ✨ Features
 
 ### 💬 **Intelligent Chat Interface**
-- **Multi-Modal AI Chat**: Interface for interacting with Gemma3:4b LLM and hybrid search
+- **Grounded AI Chat**: Text interface for Gemini-grounded answers and hybrid retrieval
 - **Real-time Streaming**: Live response generation with Server-Sent Events
 - **Message Threading**: Organized conversation history with context preservation
 - **Citation Display**: Interactive source references with file links
 - **AI-Powered File Processing**: Upload images, audio, PDFs with BLIP, YOLO, Vosk analysis
-- **File Upload in Chat**: Direct file sharing within conversations with automatic AI processing
 - **Typing Indicators**: Visual feedback during response generation
 - **Responsive Design**: Optimized for desktop, tablet, and mobile devices
 
 ### 🔐 **Authentication System**
 - **Secure Login/Signup**: JWT-based authentication with form validation
 - **Protected Routes**: Automatic redirection for unauthorized access
-- **User Profile Management**: Account settings and profile updates
 - **Session Management**: Persistent login with refresh token handling
 - **Role-based Access**: Different interfaces for users and administrators
 
@@ -34,14 +32,11 @@ The Next.js client is the user-facing interface of the NeuraNexus platform, offe
 - **Thumbnail Generation**: Smart preview images for uploaded files
 
 ### 👨‍💼 **Admin Dashboard**
-- **User Management**: User creation, editing, and role assignment
+- **User Management**: Look up users and promote them to the administrator role
 - **File Administration**: Complete file system management
-- **System Overview**: Statistics and system health monitoring
-- **Bulk Operations**: Multi-file actions and batch processing
 - **Access Control**: Admin-only features and restricted areas
 
 ### 🎨 **Modern UI/UX**
-- **Dark/Light Theme**: Elegant theme switching with system preference detection
 - **Responsive Layout**: Mobile-first design with adaptive components
 - **Smooth Animations**: Framer Motion powered transitions and interactions
 - **Loading States**: Comprehensive loading indicators and skeleton screens
@@ -70,10 +65,10 @@ The Next.js client is the user-facing interface of the NeuraNexus platform, offe
 - **Animations**: Framer Motion
 - **State Management**: React Context + Hooks
 - **HTTP Client**: Axios
-- **Forms**: React Hook Form + Zod validation
-- **Icons**: Heroicons + Lucide React
+- **Forms**: React state + Zod validation
+- **Icons**: Heroicons
 - **AI Integration**: 
-  - Interface for Gemma3:4b LLM via Node.js API
+  - Interface for Gemini API generation via the Node.js and Python services
   - Multi-modal file processing (BLIP, CLIP, YOLO, Vosk)
   - Hybrid search with BM25 + Vector similarity
   - Real-time streaming responses
@@ -100,7 +95,7 @@ cd NeuraNexus/client
 npm install
 
 # Set up environment variables
-cp .env.local.example .env.local
+cp env.example .env.local
 # Edit .env.local with your configuration
 
 # Start development server
@@ -109,17 +104,14 @@ npm run dev
 
 ### Environment Variables
 ```env
-# API Endpoints
-NEXT_PUBLIC_API_URL="http://localhost:8000"
-NEXT_PUBLIC_PYTHON_API_URL="http://localhost:5000"
-
-# Authentication
-NEXT_PUBLIC_JWT_SECRET="your-jwt-secret"
-
-# Application
-NEXT_PUBLIC_APP_NAME="NeuraNexus"
-NEXT_PUBLIC_APP_VERSION="1.0.0"
+# Public browser origins for the authenticated Node API and file service
+NEXT_PUBLIC_BASEURL="http://localhost:8000"
+NEXT_PUBLIC_FILE_BASE_URL="http://localhost:8000"
 ```
+
+Both values must be absolute HTTP(S) origins. Never put JWT secrets, Gemini
+keys, or service tokens in a `NEXT_PUBLIC_*` variable; Next.js exposes those
+values to every browser.
 
 ## 📁 Project Structure
 

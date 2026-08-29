@@ -9,6 +9,8 @@ import {
   CheckIcon,
   ArrowPathIcon,
 } from "@heroicons/react/24/outline";
+import { CitationFileInfo } from '@/types/exchange';
+import { FILE_ORIGIN } from '@/config/publicEnv';
 
 const TypingIndicator = () => (
     <div className="flex items-center space-x-1.5 py-2">
@@ -37,32 +39,31 @@ export default function MessageBubble({
   files?: Array<string>;
   fileNames?: Array<string>;
   onRetry?: () => void;
-  fileInfos?: Array<Record<string, any>>;
+  fileInfos?: CitationFileInfo[];
 }>) {
-
-  if (text === undefined) text = "";
+  const safeText = text ?? '';
   const isUser = role === "user";
   const time = typeof timestamp === "string" ? new Date(timestamp) : timestamp;
-  const formattedTime = time.toLocaleTimeString([], {
+  const formattedTime = Number.isNaN(time.getTime()) ? '' : time.toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
   });
   const [isCopied, setIsCopied] = useState(false);
 
   const handleCopy = () => {
-    if (navigator.clipboard && text) {
-      navigator.clipboard.writeText(text).then(() => {
+    if (navigator.clipboard && safeText) {
+      navigator.clipboard.writeText(safeText).then(() => {
         setIsCopied(true);
         setTimeout(() => {
           setIsCopied(false);
         }, 2000);
-      });
+      }).catch(() => setIsCopied(false));
     }
   };
 
   const processedText = role === "assistant" 
-    ? text.replace(/\\n/g, '\n')
-    : text;
+    ? safeText.replace(/\\n/g, '\n')
+    : safeText;
 
 
   const [failedThumbs, setFailedThumbs] = useState<Set<string>>(new Set());
@@ -92,6 +93,7 @@ export default function MessageBubble({
               }
               alt="message"
               fill
+              unoptimized
               className="object-cover rounded-md"
             />
           </div>
@@ -105,7 +107,7 @@ export default function MessageBubble({
             {!processedText ? <TypingIndicator /> : <Streamdown>{processedText}</Streamdown>}
           </motion.div>
         ) : (
-          <p>{text}</p>
+          <p className="whitespace-pre-wrap break-words">{safeText}</p>
         )}
       </div>
 
@@ -113,9 +115,9 @@ export default function MessageBubble({
         {files && files.length > 0 && (
           <>
             <div className="flex justify-between items-center">
-              <h1 className="text-2xl font-bold text-white mb-3">
-                Citations 👇
-              </h1>
+              <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">
+                Sources
+              </h2>
               <div className="flex items-center space-x-2">
                 <button
                   onClick={handleCopy}
@@ -143,7 +145,7 @@ export default function MessageBubble({
             <ul className="space-y-3">
               {files.map((file, index) => (
                 <li
-                  key={index}
+                  key={file}
                   className="flex justify-between items-center gap-4 p-1 rounded-lg hover:bg-blue-800/50 transition-colors duration-200"
                 >
                   <div className="flex items-center gap-4">
@@ -157,20 +159,21 @@ export default function MessageBubble({
                         />
                       ) : (
                         <Image
-                          src={`${process.env.NEXT_PUBLIC_FILE_BASE_URL}/api/file/v1/thumb/${file}`}
+                          src={`${FILE_ORIGIN}/api/file/v1/thumb/${encodeURIComponent(file)}`}
                           alt="document thumbnail"
                           height={40}
                           width={40}
+                          unoptimized
                           className="rounded-md shadow-sm"
                           onError={() => handleThumbnailError(file)}
                         />
                       )}
 
                     <a
-                      href={`${process.env.NEXT_PUBLIC_FILE_BASE_URL}/api/file/v1/files/${file}`}
+                      href={`${FILE_ORIGIN}/api/file/v1/files/${encodeURIComponent(file)}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-200 hover:text-white font-medium transition-colors duration-150"
+                      className="text-blue-700 dark:text-blue-300 hover:underline font-medium transition-colors duration-150"
                     >
                       {fileNames ? fileNames[index] : file}
                     </a>
@@ -178,12 +181,12 @@ export default function MessageBubble({
                   {fileInfos && Object.keys(fileInfos[index] || {}).length > 0 && (
                     <div className="text-sm text-gray-400">
                       {fileInfos[index].startTime ? (
-                        <span className="text-white">
+                        <span className="text-gray-700 dark:text-gray-200">
                           <i>Duration</i> ~ {fileInfos[index].duration}s [{fileInfos[index].startTime} - {fileInfos[index].endTime}]
                         </span>
                       ) : null}
                       {fileInfos[index].pageNumbers ? (
-                        <span className="text-white">
+                        <span className="text-gray-700 dark:text-gray-200">
                           <i>Page</i> ~ {fileInfos[index].pageNumbers.join(", ")}
                         </span>
                       ) : null

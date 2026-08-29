@@ -8,15 +8,8 @@
 --vsred: #E55934;
 }
 
-* {
-  cursor: default; /* Reset default cursor for all elements */
-  caret-color: transparent; /* Hide text caret globally */
-}
-
-input, textarea, [contenteditable="true"], .text-input {
-  cursor: text !important; /* Show text cursor only in input areas */
-  caret-color: auto !important; /* Restore caret color */
-}
+button, a, [role="button"] { cursor: pointer; }
+button:disabled, [aria-disabled="true"] { cursor: not-allowed; }
 
 @utility no-scrollbar {
   scrollbar-width: none; /* Firefox */
@@ -53,4 +46,13 @@ transition: background-color 200ms ease, color 200ms ease;
 /* Dark mode defaults */
 .dark {
 --bg: #071027;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -16,14 +16,6 @@ interface FileListProps {
    searchQuery?: string;
 }
 
-const formatFileSize = (bytes: number) => {
-  if (!bytes) return "Unknown size";
-  const k = 1024;
-  const sizes = ["Bytes", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-};
-
 const getFileIcon = (name: string) => {
   const ext = name.split('.').pop()?.toLowerCase();
   if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(ext || '')) {
@@ -77,7 +69,7 @@ const FileList: React.FC<FileListProps> = ({  files,
         {searchQuery ? "No files found" : "No files uploaded yet"}
       </p>
       <p className="text-gray-500">
-        {searchQuery ? `No results for "${searchQuery}"` : "Upload some files to see them here"}
+        {searchQuery ? <>No results for &quot;{searchQuery}&quot;</> : "Upload some files to see them here"}
       </p>
     </div>
     );
@@ -93,7 +85,7 @@ const FileList: React.FC<FileListProps> = ({  files,
               <span className="text-sm text-blue-400 ml-1">• {fileTypeFilter}</span>
             )}
             {searchQuery && (
-      <span className="text-sm text-yellow-400 ml-1">• "{searchQuery}"</span>
+      <span className="text-sm text-yellow-400 ml-1">• &quot;{searchQuery}&quot;</span>
     )}
           </span>
       </h3>
@@ -101,7 +93,7 @@ const FileList: React.FC<FileListProps> = ({  files,
       <div className="space-y-3">
         {files.map((file, index) => (
           <div
-            key={index}
+            key={file.documentEncryptedId || file.link}
             className="group p-4 bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl border border-gray-700 hover:border-gray-600 text-gray-200 flex items-center justify-between cursor-pointer hover:bg-gray-800/50 transition-all duration-300"
             onClick={() => onFileSelect?.(file)}
           >
@@ -133,6 +125,7 @@ const FileList: React.FC<FileListProps> = ({  files,
                 disabled={deleteLoading === fileIds[index]}
                 className="ml-4 p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all duration-200 opacity-0 group-hover:opacity-100 disabled:opacity-50"
                 title="Delete file"
+                aria-label={`Delete ${file.name}`}
               >
                 {deleteLoading === fileIds[index] ? (
                   <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
